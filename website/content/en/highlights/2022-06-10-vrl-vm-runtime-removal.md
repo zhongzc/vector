@@ -4,7 +4,7 @@ title: "Removal of VRL VM beta runtime."
 description: "Default AST runtime got a speed bump."
 authors: ["JeanMertz"]
 pr_numbers: [12888]
-release: "0.22.0"
+release: "0.23.0"
 hide_on_release_notes: false
 badges:
   type: breaking change
