@@ -14,14 +14,24 @@ use crate::{
     SourceSender,
 };
 
+#[allow(clippy::clone_on_ref_ptr)]
+mod proto {
+    mod resource_metering_pubsub {
+        include!(concat!(env!("OUT_DIR"), "/resource_usage_agent.rs"));
+    }
+    mod topsql_pubsub {
+        include!(concat!(env!("OUT_DIR"), "/tipb.rs"));
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
-struct TopSQLScrapeConfig {
+struct TopSQLPubSubConfig {
     instance: String,
     instance_type: String,
     tls: Option<TlsConfig>,
 }
 
-impl GenerateConfig for TopSQLScrapeConfig {
+impl GenerateConfig for TopSQLPubSubConfig {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(Self {
             instance: "127.0.0.1:20180".to_owned(),
@@ -33,8 +43,8 @@ impl GenerateConfig for TopSQLScrapeConfig {
 }
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "topsql_scrape")]
-impl SourceConfig for TopSQLScrapeConfig {
+#[typetag::serde(name = "topsql_pubsub")]
+impl SourceConfig for TopSQLPubSubConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
         let url = self
             .instance
@@ -57,7 +67,7 @@ impl SourceConfig for TopSQLScrapeConfig {
     }
 
     fn source_type(&self) -> &'static str {
-        "topsql_scrape"
+        "topsql_pubsub"
     }
 
     fn can_acknowledge(&self) -> bool {
@@ -66,7 +76,7 @@ impl SourceConfig for TopSQLScrapeConfig {
 }
 
 async fn topsql(
-    config: TopSQLScrapeConfig,
+    config: TopSQLPubSubConfig,
     urls: http::Uri,
     tls: TlsSettings,
     proxy: ProxyConfig,
@@ -82,6 +92,6 @@ mod test {
 
     #[test]
     fn generate_config() {
-        crate::test_util::test_generate_config::<TopSQLScrapeConfig>();
+        crate::test_util::test_generate_config::<TopSQLPubSubConfig>();
     }
 }
