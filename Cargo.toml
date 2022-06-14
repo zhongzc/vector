@@ -216,6 +216,10 @@ sha2 = { version = "0.10.2", default-features = false, optional = true }
 vrl = { path = "lib/vrl/vrl" }
 vrl-stdlib = { path = "lib/vrl/stdlib" }
 
+# TopSQL
+kvproto = { git = "https://github.com/pingcap/kvproto.git", optional = true }
+tipb = { git = "https://github.com/pingcap/tipb.git", optional = true }
+
 # External libs
 arc-swap = { version = "1.5", default-features = false, optional = true }
 async-compression = { version = "0.3.12", default-features = false, features = ["tokio", "gzip", "zstd"], optional = true }
@@ -353,6 +357,11 @@ leveldb-sys = { git = "https://github.com/vectordotdev/leveldb-sys.git", branch 
 chrono = { git = "https://github.com/vectordotdev/chrono.git", branch = "no-default-time" }
 # Adds `Status::is_reset` test, remove after the next version is released.
 h2 = { git = "https://github.com/hyperium/h2.git", rev = "f6aa3be6719270cd7b4094ee1940751b5f4ec88e" }
+# Patches for kvproto
+raft = { git = "https://github.com/tikv/raft-rs", branch = "master" }
+raft-proto = { git = "https://github.com/tikv/raft-rs", branch = "master" }
+protobuf = { git = "https://github.com/pingcap/rust-protobuf", branch = "v2.8" }
+protobuf-codegen = { git = "https://github.com/pingcap/rust-protobuf", branch = "v2.8" }
 
 [features]
 # Default features for *-unknown-linux-gnu and *-apple-darwin
@@ -458,6 +467,7 @@ sources-logs = [
   "sources-stdin",
   "sources-syslog",
   "sources-vector",
+  "sources-tidb_topsql",
 ]
 sources-metrics = [
   "sources-apache_metrics",
@@ -471,7 +481,6 @@ sources-metrics = [
   "sources-prometheus",
   "sources-statsd",
   "sources-vector",
-  "sources-tidb_topsql",
 ]
 
 sources-apache_metrics = []
@@ -508,7 +517,7 @@ sources-splunk_hec = ["sources-utils-tls", "roaring"]
 sources-statsd = ["listenfd", "sources-utils-tcp-keepalive", "sources-utils-tcp-socket", "sources-utils-tls", "sources-utils-udp", "sources-utils-unix", "tokio-util/net"]
 sources-stdin = ["tokio-util/io"]
 sources-syslog = ["listenfd", "tokio-util/net", "sources-utils-udp", "sources-utils-tcp-keepalive", "sources-utils-tcp-socket", "sources-utils-tls", "sources-utils-unix", "codecs/syslog"]
-sources-tidb_topsql = []
+sources-tidb_topsql = ["kvproto", "tipb"]
 sources-utils-http = ["snap", "sources-utils-tls", "sources-utils-http-auth", "sources-utils-http-encoding", "sources-utils-http-error", "sources-utils-http-prelude"]
 sources-utils-http-auth = ["sources-utils-http-error"]
 sources-utils-http-encoding = ["snap", "sources-utils-http-error"]

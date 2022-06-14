@@ -1,14 +1,13 @@
+use futures::{stream, FutureExt, StreamExt, TryFutureExt};
 use serde::{Deserialize, Serialize};
+use snafu::{ResultExt, Snafu};
 
 use crate::{
     config::{
         self, GenerateConfig, Output, ProxyConfig, SourceConfig, SourceContext, SourceDescription,
     },
     http::{Auth, HttpClient},
-    internal_events::{
-        EndpointBytesReceived, PrometheusEventsReceived, PrometheusHttpError,
-        PrometheusHttpResponseError, PrometheusParseError, RequestCompleted, StreamClosedError,
-    },
+    internal_events::{EndpointBytesReceived, RequestCompleted, StreamClosedError},
     shutdown::ShutdownSignal,
     sources,
     tls::{TlsConfig, TlsSettings},
@@ -31,6 +30,50 @@ impl GenerateConfig for TopSQLScrapeConfig {
         })
         .unwrap()
     }
+}
+
+#[async_trait::async_trait]
+#[typetag::serde(name = "topsql_scrape")]
+impl SourceConfig for TopSQLScrapeConfig {
+    async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
+        let url = self
+            .instance
+            .parse::<http::Uri>()
+            .context(sources::UriParseSnafu)?;
+        let tls = TlsSettings::from_options(&self.tls)?;
+        Ok(topsql(
+            self.clone(),
+            url,
+            tls,
+            cx.proxy.clone(),
+            cx.shutdown,
+            cx.out,
+        )
+        .boxed())
+    }
+
+    fn outputs(&self) -> Vec<Output> {
+        vec![Output::default(config::DataType::Log)]
+    }
+
+    fn source_type(&self) -> &'static str {
+        "topsql_scrape"
+    }
+
+    fn can_acknowledge(&self) -> bool {
+        false
+    }
+}
+
+async fn topsql(
+    config: TopSQLScrapeConfig,
+    urls: http::Uri,
+    tls: TlsSettings,
+    proxy: ProxyConfig,
+    shutdown: ShutdownSignal,
+    mut out: SourceSender,
+) -> Result<(), ()> {
+    Ok(())
 }
 
 #[cfg(test)]
