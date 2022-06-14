@@ -217,6 +217,12 @@ sha2 = { version = "0.10.2", default-features = false, optional = true }
 vrl = { path = "lib/vrl/vrl" }
 vrl-stdlib = { path = "lib/vrl/stdlib" }
 
+# TopSQL PubSub
+kvproto = { git = "https://github.com/pingcap/kvproto.git", optional = true }
+tipb = { git = "https://github.com/pingcap/tipb.git", optional = true }
+grpcio = { version = "0.10", default-features = false, features = ["openssl-vendored", "protobuf-codec"], optional = true }
+protobuf = { version = "2.8", features = ["bytes"], optional = true }
+
 # External libs
 arc-swap = { version = "1.5", default-features = false, optional = true }
 async-compression = { version = "0.3.12", default-features = false, features = ["tokio", "gzip", "zstd"], optional = true }
@@ -358,6 +364,10 @@ h2 = { git = "https://github.com/hyperium/h2.git", rev = "f6aa3be6719270cd7b4094
 # TODO remove this branch and instead use the openssl-src feature flag once it is available
 #    (see https://github.com/vectordotdev/vector/issues/13695)
 openssl-src = { git = "https://github.com/vectordotdev/openssl-src-rs.git", branch  = "enable_engine" }
+# TopSQL
+raft-proto = { git = "https://github.com/tikv/raft-rs", branch = "master" }
+protobuf = { git = "https://github.com/pingcap/rust-protobuf", branch = "v2.8" }
+protobuf-codegen = { git = "https://github.com/pingcap/rust-protobuf", branch = "v2.8" }
 
 [features]
 # Default features for *-unknown-linux-gnu and *-apple-darwin
@@ -466,6 +476,7 @@ sources-logs = [
   "sources-splunk_hec",
   "sources-stdin",
   "sources-syslog",
+  "sources-topsql_pubsub",
   "sources-vector",
 ]
 sources-metrics = [
@@ -517,6 +528,7 @@ sources-splunk_hec = ["sources-utils-tls", "dep:roaring"]
 sources-statsd = ["listenfd", "sources-utils-tcp-keepalive", "sources-utils-tcp-socket", "sources-utils-tls", "sources-utils-udp", "sources-utils-unix", "tokio-util/net"]
 sources-stdin = ["tokio-util/io"]
 sources-syslog = ["listenfd", "tokio-util/net", "sources-utils-udp", "sources-utils-tcp-keepalive", "sources-utils-tcp-socket", "sources-utils-tls", "sources-utils-unix", "codecs/syslog"]
+sources-topsql_pubsub = ["dep:hex", "tipb", "kvproto", "grpcio", "protobuf"]
 sources-utils-http = ["dep:snap", "sources-utils-tls", "sources-utils-http-auth", "sources-utils-http-encoding", "sources-utils-http-error", "sources-utils-http-prelude"]
 sources-utils-http-auth = ["sources-utils-http-error"]
 sources-utils-http-encoding = ["dep:snap", "sources-utils-http-error"]
@@ -614,6 +626,7 @@ sinks-logs = [
   "sinks-socket",
   "sinks-splunk_hec",
   "sinks-vector",
+  "sinks-vm_import",
   "sinks-websocket",
 ]
 sinks-metrics = [
@@ -672,6 +685,7 @@ sinks-splunk_hec = []
 sinks-statsd = ["sinks-utils-udp", "tokio-util/net"]
 sinks-utils-udp = []
 sinks-vector = ["sinks-utils-udp", "dep:tonic", "protobuf-build"]
+sinks-vm_import = []
 sinks-websocket = ["dep:tokio-tungstenite"]
 
 # Datadog integration

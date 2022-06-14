@@ -89,6 +89,8 @@ pub mod splunk_hec;
 pub mod statsd;
 #[cfg(feature = "sinks-vector")]
 pub mod vector;
+#[cfg(feature = "sinks-vm_import")]
+pub mod vm_import;
 #[cfg(feature = "sinks-websocket")]
 pub mod websocket;
 
