@@ -19,7 +19,7 @@ use crate::{
     config::{
         self, GenerateConfig, Output, ProxyConfig, SourceConfig, SourceContext, SourceDescription,
     },
-    event::{LogEvent, Value},
+    event::{Event, LogEvent, Value},
     http::{Auth, HttpClient},
     internal_events::{EndpointBytesReceived, RequestCompleted, StreamClosedError},
     shutdown::ShutdownSignal,
@@ -179,14 +179,44 @@ impl TopSQLSource {
                             let record = record.unwrap();
                             record.resp_oneof.map(|r| match r {
                                 RespOneof::Record(record) => {}
-                                RespOneof::SqlMeta(sql_meta) => {}
-                                RespOneof::PlanMeta(plan_meta) => {}
+                                RespOneof::SqlMeta(sql_meta) => {
+                                    Some(stream::iter(vec![make_metric_like_log_event(
+                                        &[
+                                            ("__name__", "sql_meta".to_owned()),
+                                            ("sql_digest", hex::encode_upper(sql_meta.sql_digest)),
+                                            ("normalized_sql", sql_meta.normalized_sql),
+                                            (
+                                                "is_internal_sql",
+                                                sql_meta.is_internal_sql.to_string(),
+                                            ),
+                                        ],
+                                        &[Utc::now()],
+                                        &[1.0],
+                                    )]));
+                                }
+                                RespOneof::PlanMeta(plan_meta) => {
+                                    Some(stream::iter(vec![make_metric_like_log_event(
+                                        &[
+                                            ("__name__", "plan_meta".to_owned()),
+                                            (
+                                                "plan_digest",
+                                                hex::encode_upper(plan_meta.plan_digest),
+                                            ),
+                                            ("normalized_plan", plan_meta.normalized_plan),
+                                        ],
+                                        &[Utc::now()],
+                                        &[1.0],
+                                    )]));
+                                }
                             });
                             let log = BTreeMap::new();
-                            Some(LogEvent::from_map(log, EventMetadata::default()))
+                            Some(stream::iter(vec![LogEvent::from_map(
+                                log,
+                                EventMetadata::default(),
+                            )]))
                         }
                         Either::Right((instance, instance_type)) => {
-                            Some(make_metric_like_log_event(
+                            Some(stream::iter(vec![make_metric_like_log_event(
                                 &[
                                     ("__name__", "instance".to_owned()),
                                     ("instance", instance),
@@ -194,11 +224,12 @@ impl TopSQLSource {
                                 ],
                                 &[Utc::now()],
                                 &[1.0],
-                            ))
+                            )]))
                         }
                     }
                 })
-            });
+            })
+            .flatten();
 
         match self.out.send_event_stream(&mut stream).await {
             Ok(()) => {
