@@ -3,7 +3,7 @@ use std::future::ready;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{
     future::Either,
     stream::{self, select},
@@ -164,6 +164,8 @@ impl TopSQLSource {
                 ))
             });
 
+        let instance = self.config.instance.clone();
+        let instance_type = self.config.instance_type.clone();
         let mut stream = select(record_stream, instance_stream)
             .take_until(self.shutdown)
             .take_while(|item| {
@@ -178,7 +180,95 @@ impl TopSQLSource {
                         Either::Left(record) => {
                             let record = record.unwrap();
                             record.resp_oneof.map(|r| match r {
-                                RespOneof::Record(record) => {}
+                                RespOneof::Record(record) => {
+                                    let timestamps = record
+                                        .items
+                                        .iter()
+                                        .map(|item| {
+                                            DateTime::<Utc>::from_utc(
+                                                NaiveDateTime::from_timestamp(
+                                                    item.timestamp_sec as i64,
+                                                    0,
+                                                ),
+                                                Utc,
+                                            )
+                                        })
+                                        .collect::<Vec<_>>();
+                                    let mut labels = vec![
+                                        ("__name__", String::new()),
+                                        ("instance", String::new()),
+                                        ("instance_type", String::new()),
+                                        ("sql_digest", String::new()),
+                                        ("plan_digest", String::new()),
+                                    ];
+                                    const NAME_INDEX: usize = 0;
+                                    const INSTANCE_INDEX: usize = 1;
+                                    const INSTANCE_TYPE_INDEX: usize = 2;
+                                    const SQL_DIGEST_INDEX: usize = 3;
+                                    const PLAN_DIGEST_INDEX: usize = 4;
+                                    let mut values = vec![];
+
+                                    let mut logs = vec![];
+
+                                    // cpu_time_ms
+                                    labels[NAME_INDEX].1 = "cpu_time_ms".to_owned();
+                                    labels[INSTANCE_INDEX].1 = instance.clone();
+                                    labels[INSTANCE_TYPE_INDEX].1 = instance_type.clone();
+                                    labels[SQL_DIGEST_INDEX].1 =
+                                        hex::encode_upper(record.sql_digest);
+                                    labels[PLAN_DIGEST_INDEX].1 =
+                                        hex::encode_upper(record.plan_digest);
+                                    values.extend(
+                                        record.items.iter().map(|item| item.cpu_time_ms as f64),
+                                    );
+                                    logs.push(make_metric_like_log_event(
+                                        &labels,
+                                        &timestamps,
+                                        &values,
+                                    ));
+
+                                    // stmt_exec_count
+                                    labels[NAME_INDEX].1 = "stmt_exec_count".to_owned();
+                                    values.clear();
+                                    values.extend(
+                                        record.items.iter().map(|item| item.stmt_exec_count as f64),
+                                    );
+                                    logs.push(make_metric_like_log_event(
+                                        &labels,
+                                        &timestamps,
+                                        &values,
+                                    ));
+
+                                    // stmt_duration_sum_ns
+                                    labels[NAME_INDEX].1 = "stmt_duration_sum_ns".to_owned();
+                                    values.clear();
+                                    values.extend(
+                                        record
+                                            .items
+                                            .iter()
+                                            .map(|item| item.stmt_duration_sum_ns as f64),
+                                    );
+                                    logs.push(make_metric_like_log_event(
+                                        &labels,
+                                        &timestamps,
+                                        &values,
+                                    ));
+
+                                    // stmt_duration_count
+                                    labels[NAME_INDEX].1 = "stmt_duration_count".to_owned();
+                                    values.clear();
+                                    values.extend(
+                                        record
+                                            .items
+                                            .iter()
+                                            .map(|item| item.stmt_duration_count as f64),
+                                    );
+                                    logs.push(make_metric_like_log_event(
+                                        &labels,
+                                        &timestamps,
+                                        &values,
+                                    ));
+                                }
                                 RespOneof::SqlMeta(sql_meta) => {
                                     Some(stream::iter(vec![make_metric_like_log_event(
                                         &[
