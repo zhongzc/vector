@@ -106,6 +106,7 @@ fn main() {
         println!("cargo:rerun-if-changed=proto/vector.proto");
         println!("cargo:rerun-if-changed=proto/tidb/resource_usage_agent.proto");
         println!("cargo:rerun-if-changed=proto/tidb/topsql_agent.proto");
+        println!("cargo:rerun-if-changed=proto/tidb/resourcetag.proto");
 
         let mut prost_build = prost_build::Config::new();
         prost_build.btree_map(&["."]);
@@ -122,6 +123,7 @@ fn main() {
                     "proto/vector.proto",
                     "proto/tidb/resource_usage_agent.proto",
                     "proto/tidb/topsql_agent.proto",
+                    "proto/tidb/resourcetag.proto",
                 ],
                 &["proto/", "lib/vector-core/proto/"],
             )
