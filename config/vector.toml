@@ -15,26 +15,26 @@
 # Change this to use a non-default directory for Vector data storage:
 # data_dir = "/var/lib/vector"
 
-# Random Syslog-formatted logs
-[sources.dummy_logs]
-type = "demo_logs"
-format = "syslog"
-interval = 1
-
-# Parse Syslog logs
-# See the Vector Remap Language reference for more info: https://vrl.dev
-[transforms.parse_logs]
-type = "remap"
-inputs = ["dummy_logs"]
-source = '''
-. = parse_syslog!(string!(.message))
-'''
-
-# Print parsed logs to stdout
-[sinks.print]
-type = "console"
-inputs = ["parse_logs"]
-encoding.codec = "json"
+## Random Syslog-formatted logs
+#[sources.dummy_logs]
+#type = "demo_logs"
+#format = "syslog"
+#interval = 1
+#
+## Parse Syslog logs
+## See the Vector Remap Language reference for more info: https://vrl.dev
+#[transforms.parse_logs]
+#type = "remap"
+#inputs = ["dummy_logs"]
+#source = '''
+#. = parse_syslog!(string!(.message))
+#'''
+#
+## Print parsed logs to stdout
+#[sinks.print]
+#type = "console"
+#inputs = ["parse_logs"]
+#encoding.codec = "json"
 
 # Vector's GraphQL API (disabled by default)
 # Uncomment to try it out with the `vector top` command or
@@ -42,3 +42,18 @@ encoding.codec = "json"
 #[api]
 #enabled = true
 #address = "127.0.0.1:8686"
+
+[sources.tidb]
+type = "topsql_pubsub"
+instance = "localhost:10080"
+instance_type = "tidb"
+
+[sources.tikv]
+type = "topsql_pubsub"
+instance = "localhost:20160"
+instance_type = "tikv"
+
+[sinks.print]
+type = "console"
+inputs = ["tidb", "tikv"]
+encoding.codec = "json"

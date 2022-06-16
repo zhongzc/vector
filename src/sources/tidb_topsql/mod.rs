@@ -152,9 +152,9 @@ impl SourceConfig for TopSQLPubSubConfig {
             .context(sources::UriParseSnafu)?;
         // TODO: support TLS
         let channel = Channel::from_shared(format!("http://{}", uri))?
-            .keep_alive_timeout(Duration::from_secs(3))
-            .http2_keep_alive_interval(Duration::from_secs(10))
-            .connect_timeout(Duration::from_secs(5))
+            // .keep_alive_timeout(Duration::from_secs(3))
+            // .http2_keep_alive_interval(Duration::from_secs(10))
+            // .connect_timeout(Duration::from_secs(5))
             .connect_lazy();
         Ok(
             TopSQLSource::new(self.clone(), channel, cx.shutdown, cx.out)
