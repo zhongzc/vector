@@ -1,30 +1,29 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::ready;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{
     future::Either,
     stream::{self, select},
-    FutureExt, StreamExt, TryFutureExt,
+    FutureExt, StreamExt,
 };
 use ordered_float::NotNan;
+use proto::topsql_pubsub::{
+    top_sql_pub_sub_client::TopSqlPubSubClient, top_sql_sub_response::RespOneof, TopSqlSubRequest,
+};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
 use tokio_stream::wrappers::IntervalStream;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
+use tonic::transport::Channel;
 
 use crate::{
-    config::{
-        self, GenerateConfig, Output, ProxyConfig, SourceConfig, SourceContext, SourceDescription,
-    },
-    event::{Event, LogEvent, Value},
-    http::{Auth, HttpClient},
-    internal_events::{EndpointBytesReceived, RequestCompleted, StreamClosedError},
+    config::{self, GenerateConfig, Output, SourceConfig, SourceContext, SourceDescription},
+    event::{EventMetadata, LogEvent, Value},
     shutdown::ShutdownSignal,
     sources,
-    tls::{TlsConfig, TlsSettings},
+    tls::TlsConfig,
     SourceSender,
 };
 
@@ -37,13 +36,6 @@ mod proto {
         include!(concat!(env!("OUT_DIR"), "/resource_usage_agent.rs"));
     }
 }
-
-use crate::event::EventMetadata;
-use crate::sources::tidb_topsql::proto::topsql_pubsub::top_sql_sub_response::RespOneof;
-use crate::sources::tidb_topsql::proto::topsql_pubsub::TopSqlSubResponse;
-use proto::resource_metering_pubsub::resource_metering_pub_sub_client;
-use proto::topsql_pubsub::{top_sql_pub_sub_client::TopSqlPubSubClient, TopSqlSubRequest};
-use tonic::{Response, Status, Streaming};
 
 #[derive(Debug, Snafu)]
 enum ConfigError {
@@ -138,7 +130,7 @@ impl TopSQLSource {
         }
     }
 
-    async fn run(mut self) -> Result<(), ()> {
+    async fn run(self) -> Result<(), ()> {
         match self.config.instance_type.as_str() {
             "tidb" => self.scrape_tidb().await,
             "tikv" => self.scrape_tikv().await,
@@ -268,9 +260,36 @@ impl TopSQLSource {
                                         &timestamps,
                                         &values,
                                     ));
+
+                                    // stmt_kv_exec_count
+                                    let tikv_instances = record
+                                        .items
+                                        .iter()
+                                        .flat_map(|item| item.stmt_kv_exec_count.keys())
+                                        .collect::<BTreeSet<_>>();
+                                    labels[NAME_INDEX].1 = "stmt_kv_exec_count".to_owned();
+                                    labels[INSTANCE_TYPE_INDEX].1 = "tikv".to_owned();
+                                    for tikv_instance in tikv_instances {
+                                        values.clear();
+                                        labels[INSTANCE_INDEX].1 = tikv_instance.clone();
+                                        values.extend(record.items.iter().map(|item| {
+                                            item.stmt_kv_exec_count
+                                                .get(tikv_instance)
+                                                .cloned()
+                                                .unwrap_or_default()
+                                                as f64
+                                        }));
+                                        logs.push(make_metric_like_log_event(
+                                            &labels,
+                                            &timestamps,
+                                            &values,
+                                        ));
+                                    }
+
+                                    stream::iter(logs)
                                 }
                                 RespOneof::SqlMeta(sql_meta) => {
-                                    Some(stream::iter(vec![make_metric_like_log_event(
+                                    stream::iter(vec![make_metric_like_log_event(
                                         &[
                                             ("__name__", "sql_meta".to_owned()),
                                             ("sql_digest", hex::encode_upper(sql_meta.sql_digest)),
@@ -282,10 +301,10 @@ impl TopSQLSource {
                                         ],
                                         &[Utc::now()],
                                         &[1.0],
-                                    )]));
+                                    )])
                                 }
                                 RespOneof::PlanMeta(plan_meta) => {
-                                    Some(stream::iter(vec![make_metric_like_log_event(
+                                    stream::iter(vec![make_metric_like_log_event(
                                         &[
                                             ("__name__", "plan_meta".to_owned()),
                                             (
@@ -296,14 +315,9 @@ impl TopSQLSource {
                                         ],
                                         &[Utc::now()],
                                         &[1.0],
-                                    )]));
+                                    )])
                                 }
-                            });
-                            let log = BTreeMap::new();
-                            Some(stream::iter(vec![LogEvent::from_map(
-                                log,
-                                EventMetadata::default(),
-                            )]))
+                            })
                         }
                         Either::Right((instance, instance_type)) => {
                             Some(stream::iter(vec![make_metric_like_log_event(
@@ -330,7 +344,7 @@ impl TopSQLSource {
         }
     }
 
-    async fn scrape_tikv(mut self) -> Result<(), ()> {
+    async fn scrape_tikv(self) -> Result<(), ()> {
         Ok(())
     }
 }
