@@ -53,7 +53,7 @@ type = "topsql_pubsub"
 instance = "localhost:20160"
 instance_type = "tikv"
 
-[sinks.print]
-type = "console"
+[sinks.vm]
+type = "vm_import"
 inputs = ["tidb", "tikv"]
-encoding.codec = "json"
+endpoint = "http://localhost:8428/api/v1/import"

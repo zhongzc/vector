@@ -16,8 +16,7 @@ use crate::http::HttpClient;
 use crate::sinks;
 use crate::sinks::util::http::{BatchedHttpSink, HttpEventEncoder, HttpSink};
 use crate::sinks::util::{
-    BatchConfig, BoxedRawValue, JsonArrayBuffer, SinkBatchSettings,
-    TowerRequestConfig,
+    BatchConfig, BoxedRawValue, JsonArrayBuffer, SinkBatchSettings, TowerRequestConfig,
 };
 use crate::tls::{TlsConfig, TlsSettings};
 
@@ -49,7 +48,7 @@ inventory::submit! {
 impl GenerateConfig for VMImportConfig {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(Self {
-            endpoint: "127.0.0.1:8428/api/v1/import".to_owned(),
+            endpoint: "http://127.0.0.1:8428/api/v1/import".to_owned(),
             batch: BatchConfig::default(),
             request: TowerRequestConfig::default(),
             tls: None,
