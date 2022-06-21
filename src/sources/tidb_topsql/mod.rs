@@ -183,6 +183,8 @@ struct TopSQLSource {
     out: SourceSender,
 }
 
+const MAX_RECONNECT_TIMES: usize = 8;
+
 impl TopSQLSource {
     fn new(
         config: TopSQLPubSubConfig,
@@ -207,14 +209,57 @@ impl TopSQLSource {
     }
 
     async fn scrape_tidb(mut self) -> Result<(), ()> {
-        let mut client = TopSqlPubSubClient::new(self.channel);
-        let record_stream = match client.subscribe(TopSqlSubRequest {}).await {
-            Ok(stream) => stream.into_inner().map(|r| Either::Left(r)),
-            Err(_) => {
-                // TODO: internal error
-                return Err(());
-            }
-        };
+        let client = TopSqlPubSubClient::new(self.channel);
+        let record_stream = Box::pin(
+            stream::try_unfold(client, |mut client| async move {
+                let mut reconnect_times = 0;
+                loop {
+                    let stream = client.subscribe(TopSqlSubRequest {}).await;
+                    match stream {
+                        Ok(stream) => {
+                            let mut stream = stream.into_inner();
+                            match stream.next().await {
+                                Some(Ok(item)) => {
+                                    let s = stream::once(ready(Ok(item))).chain(stream);
+                                    info!("Successfully subscribe to topsql");
+                                    return Ok(Some((s, client)));
+                                }
+                                Some(err) => {
+                                    error!(message = "Error receiving topsql", ?err);
+                                    reconnect_times += 1;
+                                }
+                                None => {
+                                    error!(message = "Empty topsql stream");
+                                    reconnect_times += 1;
+                                }
+                            }
+                        }
+                        err => {
+                            error!(message = "Error subscribing topsql", ?err);
+                            reconnect_times += 1;
+                        }
+                    }
+                    if reconnect_times > MAX_RECONNECT_TIMES {
+                        return Err(());
+                    }
+                    tokio::time::sleep(Duration::from_secs(1 << reconnect_times)).await;
+                    info!(message = "Retry to subscribe topsql", retried_times = reconnect_times);
+                }
+            })
+            .take_while(|stream| ready(stream.is_ok()))
+            .flat_map(|stream| {
+                stream.unwrap().take_while(|item| {
+                    ready(match item {
+                        Ok(_) => true,
+                        err => {
+                            error!(message = "Error receiving topsql", ?err);
+                            false
+                        }
+                    })
+                })
+            })
+            .map(|item| Either::Left(item)),
+        );
 
         let instance_stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(30)))
             .map(|_| {
@@ -228,12 +273,6 @@ impl TopSQLSource {
         let instance_type = self.config.instance_type.clone();
         let mut stream = select(record_stream, instance_stream)
             .take_until(self.shutdown)
-            .take_while(|item| {
-                ready(match item {
-                    Either::Left(record) => record.is_ok(),
-                    Either::Right(_) => true,
-                })
-            })
             .filter_map(|item| {
                 ready({
                     match item {
