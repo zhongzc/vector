@@ -1,37 +1,37 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::future::ready;
 use std::time::Duration;
 
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use futures::{
-    future::Either,
-    stream::{self, select},
-    FutureExt, StreamExt,
-};
+use futures::{StreamExt, TryFutureExt};
+use http::uri::InvalidUri;
 use ordered_float::NotNan;
 use prost::Message;
 use proto::{
     resource_metering_pubsub::{
         resource_metering_pub_sub_client::ResourceMeteringPubSubClient,
-        resource_usage_record::RecordOneof, ResourceMeteringRequest,
+        resource_usage_record::RecordOneof, GroupTagRecord, ResourceMeteringRequest,
+        ResourceUsageRecord,
     },
     topsql_pubsub::{
-        top_sql_pub_sub_client::TopSqlPubSubClient, top_sql_sub_response::RespOneof,
-        ResourceGroupTag, TopSqlSubRequest,
+        top_sql_pub_sub_client::TopSqlPubSubClient, top_sql_sub_response::RespOneof, PlanMeta,
+        ResourceGroupTag, SqlMeta, TopSqlRecord, TopSqlSubRequest, TopSqlSubResponse,
     },
 };
 use serde::{Deserialize, Serialize};
-use snafu::{ResultExt, Snafu};
+use snafu::{Error, ResultExt, Snafu};
 use tokio_stream::wrappers::IntervalStream;
-use tonic::transport::Channel;
+use tonic::transport::{Channel, Endpoint};
 use vector_common::byte_size_of::ByteSizeOf;
-use vector_common::internal_event::EventsReceived;
 
-use crate::internal_events::BytesReceived;
+use crate::internal_events::{BytesReceived, EventsReceived};
 use crate::{
     config::{self, GenerateConfig, Output, SourceConfig, SourceContext, SourceDescription},
     event::{EventMetadata, LogEvent, Value},
+    internal_events::{
+        StreamClosedError, TopSQLPubSubConnectError, TopSQLPubSubReceiveError,
+        TopSQLPubSubSubscribeError,
+    },
     shutdown::ShutdownSignal,
     sources,
     tls::TlsConfig,
@@ -109,6 +109,8 @@ mod proto {
 enum ConfigError {
     #[snafu(display("Unsupported instance type {:?}", instance_type))]
     UnsupportedInstanceType { instance_type: String },
+    #[snafu(display("Could not create endpoint: {}", source))]
+    Endpoint { source: InvalidUri },
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -116,6 +118,14 @@ struct TopSQLPubSubConfig {
     instance: String,
     instance_type: String,
     tls: Option<TlsConfig>,
+
+    /// The amount of time, in seconds, to wait between retry attempts after an error.
+    #[serde(default = "default_retry_delay")]
+    pub retry_delay_seconds: f64,
+}
+
+const fn default_retry_delay() -> f64 {
+    1.0
 }
 
 inventory::submit! {
@@ -128,6 +138,7 @@ impl GenerateConfig for TopSQLPubSubConfig {
             instance: "127.0.0.1:10080".to_owned(),
             instance_type: "tidb".to_owned(),
             tls: None,
+            retry_delay_seconds: default_retry_delay(),
         })
         .unwrap()
     }
@@ -146,21 +157,16 @@ impl SourceConfig for TopSQLPubSubConfig {
                 .into());
             }
         }
-        let uri = self
-            .instance
-            .parse::<http::Uri>()
-            .context(sources::UriParseSnafu)?;
-        // TODO: support TLS
-        let channel = Channel::from_shared(format!("http://{}", uri))?
-            // .keep_alive_timeout(Duration::from_secs(3))
-            // .http2_keep_alive_interval(Duration::from_secs(10))
-            // .connect_timeout(Duration::from_secs(5))
-            .connect_lazy();
-        Ok(
-            TopSQLSource::new(self.clone(), channel, cx.shutdown, cx.out)
-                .run()
-                .boxed(),
+        let source = TopSQLSource::new(
+            self.clone(),
+            cx.shutdown,
+            cx.out,
+            Duration::from_secs_f64(self.retry_delay_seconds),
         )
+        .run()
+        .map_err(|error| error!(message = "Source failed.", %error));
+
+        Ok(Box::pin(source))
     }
 
     fn outputs(&self) -> Vec<Output> {
@@ -178,414 +184,374 @@ impl SourceConfig for TopSQLPubSubConfig {
 
 struct TopSQLSource {
     config: TopSQLPubSubConfig,
-    channel: Channel,
     shutdown: ShutdownSignal,
     out: SourceSender,
+    retry_delay: Duration,
+}
+
+enum State {
+    RetryNow,
+    RetryDelay,
+    Shutdown,
 }
 
 impl TopSQLSource {
     fn new(
         config: TopSQLPubSubConfig,
-        channel: Channel,
         shutdown: ShutdownSignal,
         out: SourceSender,
+        retry_delay: Duration,
     ) -> Self {
         Self {
             config,
-            channel,
             shutdown,
             out,
+            retry_delay,
         }
     }
 
-    async fn run(self) -> Result<(), ()> {
-        match self.config.instance_type.as_str() {
-            "tidb" => self.scrape_tidb().await,
-            "tikv" => self.scrape_tikv().await,
-            _ => unreachable!(),
+    async fn run(mut self) -> crate::Result<()> {
+        let channel = Channel::from_shared(format!("http://{}", self.config.instance))
+            .context(EndpointSnafu)?;
+
+        loop {
+            match match self.config.instance_type.as_str() {
+                "tidb" => self.run_once_tidb(&channel).await,
+                "tikv" => self.run_once_tikv(&channel).await,
+                _ => unreachable!(),
+            } {
+                State::RetryNow => debug!("Retrying immediately."),
+                State::RetryDelay => {
+                    info!(
+                        timeout_secs = self.retry_delay.as_secs_f64(),
+                        "Retrying after timeout."
+                    );
+                    tokio::time::sleep(self.retry_delay).await;
+                }
+                State::Shutdown => break,
+            }
         }
+
+        Ok(())
     }
 
-    async fn scrape_tidb(mut self) -> Result<(), ()> {
-        let mut client = TopSqlPubSubClient::new(self.channel);
-        let record_stream = match client.subscribe(TopSqlSubRequest {}).await {
-            Ok(stream) => stream.into_inner().map(|r| Either::Left(r)),
-            Err(_) => {
-                // TODO: internal error
-                return Err(());
+    async fn run_once_tidb(&mut self, endpoint: &Endpoint) -> State {
+        let connection = tokio::select! {
+            _ = &mut self.shutdown => return State::Shutdown,
+            connection = endpoint.connect() => match connection {
+                Ok(connection) => connection,
+                Err(error) => {
+                    emit!(TopSQLPubSubConnectError { error });
+                    return State::RetryDelay;
+                }
             }
         };
+        let mut client = TopSqlPubSubClient::new(connection);
 
-        let instance_stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(30)))
-            .map(|_| {
-                Either::Right((
-                    self.config.instance.clone(),
-                    self.config.instance_type.clone(),
-                ))
-            });
-
-        let instance = self.config.instance.clone();
-        let instance_type = self.config.instance_type.clone();
-        let mut stream = select(record_stream, instance_stream)
-            .take_until(self.shutdown)
-            .take_while(|item| {
-                ready(match item {
-                    Either::Left(record) => record.is_ok(),
-                    Either::Right(_) => true,
-                })
-            })
-            .filter_map(|item| {
-                ready({
-                    match item {
-                        Either::Left(record) => {
-                            let record = record.unwrap();
-                            emit!(BytesReceived {
-                                byte_size: record.size_of(),
-                                protocol: "http", // TODO: or https
-                            });
-                            record.resp_oneof.map(|r| match r {
-                                RespOneof::Record(record) => {
-                                    let timestamps = record
-                                        .items
-                                        .iter()
-                                        .map(|item| {
-                                            DateTime::<Utc>::from_utc(
-                                                NaiveDateTime::from_timestamp(
-                                                    item.timestamp_sec as i64,
-                                                    0,
-                                                ),
-                                                Utc,
-                                            )
-                                        })
-                                        .collect::<Vec<_>>();
-                                    let mut labels = vec![
-                                        ("__name__", String::new()),
-                                        ("instance", String::new()),
-                                        ("instance_type", String::new()),
-                                        ("sql_digest", String::new()),
-                                        ("plan_digest", String::new()),
-                                    ];
-                                    const NAME_INDEX: usize = 0;
-                                    const INSTANCE_INDEX: usize = 1;
-                                    const INSTANCE_TYPE_INDEX: usize = 2;
-                                    const SQL_DIGEST_INDEX: usize = 3;
-                                    const PLAN_DIGEST_INDEX: usize = 4;
-                                    let mut values = vec![];
-
-                                    let mut logs = vec![];
-
-                                    // cpu_time_ms
-                                    labels[NAME_INDEX].1 = "cpu_time_ms".to_owned();
-                                    labels[INSTANCE_INDEX].1 = instance.clone();
-                                    labels[INSTANCE_TYPE_INDEX].1 = instance_type.clone();
-                                    labels[SQL_DIGEST_INDEX].1 =
-                                        hex::encode_upper(record.sql_digest);
-                                    labels[PLAN_DIGEST_INDEX].1 =
-                                        hex::encode_upper(record.plan_digest);
-                                    values.extend(
-                                        record.items.iter().map(|item| item.cpu_time_ms as f64),
-                                    );
-                                    logs.push(make_metric_like_log_event(
-                                        &labels,
-                                        &timestamps,
-                                        &values,
-                                    ));
-
-                                    // stmt_exec_count
-                                    labels[NAME_INDEX].1 = "stmt_exec_count".to_owned();
-                                    values.clear();
-                                    values.extend(
-                                        record.items.iter().map(|item| item.stmt_exec_count as f64),
-                                    );
-                                    logs.push(make_metric_like_log_event(
-                                        &labels,
-                                        &timestamps,
-                                        &values,
-                                    ));
-
-                                    // stmt_duration_sum_ns
-                                    labels[NAME_INDEX].1 = "stmt_duration_sum_ns".to_owned();
-                                    values.clear();
-                                    values.extend(
-                                        record
-                                            .items
-                                            .iter()
-                                            .map(|item| item.stmt_duration_sum_ns as f64),
-                                    );
-                                    logs.push(make_metric_like_log_event(
-                                        &labels,
-                                        &timestamps,
-                                        &values,
-                                    ));
-
-                                    // stmt_duration_count
-                                    labels[NAME_INDEX].1 = "stmt_duration_count".to_owned();
-                                    values.clear();
-                                    values.extend(
-                                        record
-                                            .items
-                                            .iter()
-                                            .map(|item| item.stmt_duration_count as f64),
-                                    );
-                                    logs.push(make_metric_like_log_event(
-                                        &labels,
-                                        &timestamps,
-                                        &values,
-                                    ));
-
-                                    // stmt_kv_exec_count
-                                    let tikv_instances = record
-                                        .items
-                                        .iter()
-                                        .flat_map(|item| item.stmt_kv_exec_count.keys())
-                                        .collect::<BTreeSet<_>>();
-                                    labels[NAME_INDEX].1 = "stmt_kv_exec_count".to_owned();
-                                    labels[INSTANCE_TYPE_INDEX].1 = "tikv".to_owned();
-                                    for tikv_instance in tikv_instances {
-                                        values.clear();
-                                        labels[INSTANCE_INDEX].1 = tikv_instance.clone();
-                                        values.extend(record.items.iter().map(|item| {
-                                            item.stmt_kv_exec_count
-                                                .get(tikv_instance)
-                                                .cloned()
-                                                .unwrap_or_default()
-                                                as f64
-                                        }));
-                                        logs.push(make_metric_like_log_event(
-                                            &labels,
-                                            &timestamps,
-                                            &values,
-                                        ));
-                                    }
-
-                                    emit!(EventsReceived {
-                                        count: logs.len(),
-                                        byte_size: logs.size_of(),
-                                    });
-                                    stream::iter(logs)
-                                }
-                                RespOneof::SqlMeta(sql_meta) => {
-                                    let logs = vec![make_metric_like_log_event(
-                                        &[
-                                            ("__name__", "sql_meta".to_owned()),
-                                            ("sql_digest", hex::encode_upper(sql_meta.sql_digest)),
-                                            ("normalized_sql", sql_meta.normalized_sql),
-                                            (
-                                                "is_internal_sql",
-                                                sql_meta.is_internal_sql.to_string(),
-                                            ),
-                                        ],
-                                        &[Utc::now()],
-                                        &[1.0],
-                                    )];
-
-                                    emit!(EventsReceived {
-                                        count: logs.len(),
-                                        byte_size: logs.size_of(),
-                                    });
-                                    stream::iter(logs)
-                                }
-                                RespOneof::PlanMeta(plan_meta) => {
-                                    let logs = vec![make_metric_like_log_event(
-                                        &[
-                                            ("__name__", "plan_meta".to_owned()),
-                                            (
-                                                "plan_digest",
-                                                hex::encode_upper(plan_meta.plan_digest),
-                                            ),
-                                            ("normalized_plan", plan_meta.normalized_plan),
-                                        ],
-                                        &[Utc::now()],
-                                        &[1.0],
-                                    )];
-
-                                    emit!(EventsReceived {
-                                        count: logs.len(),
-                                        byte_size: logs.size_of(),
-                                    });
-                                    stream::iter(logs)
-                                }
-                            })
-                        }
-                        Either::Right((instance, instance_type)) => {
-                            Some(stream::iter(vec![make_metric_like_log_event(
-                                &[
-                                    ("__name__", "instance".to_owned()),
-                                    ("instance", instance),
-                                    ("instance_type", instance_type),
-                                ],
-                                &[Utc::now()],
-                                &[1.0],
-                            )]))
-                        }
-                    }
-                })
-            })
-            .flatten();
-
-        match self.out.send_event_stream(&mut stream).await {
-            Ok(()) => {
-                info!("Finished sending.");
-                Ok(())
+        let stream = tokio::select! {
+            _ = &mut self.shutdown => return State::Shutdown,
+            result = client.subscribe(TopSqlSubRequest {}) => match result {
+                Ok(stream) => stream,
+                Err(error) => {
+                    emit!(TopSQLPubSubSubscribeError { error });
+                    return State::RetryDelay;
+                }
             }
-            Err(_) => Err(()),
+        };
+        let mut response_stream = stream.into_inner();
+        let mut instance_stream =
+            IntervalStream::new(tokio::time::interval(Duration::from_secs(30)));
+
+        loop {
+            tokio::select! {
+                _ = &mut self.shutdown => break State::Shutdown,
+                _ = instance_stream.next() => self.handle_instance().await,
+                response = response_stream.next() => match response {
+                    Some(Ok(response)) => self.handle_tidb_response(response).await,
+                    Some(Err(error)) => break translate_error(error),
+                    None => break State::RetryNow,
+                }
+            }
         }
     }
 
-    async fn scrape_tikv(mut self) -> Result<(), ()> {
-        let mut client = ResourceMeteringPubSubClient::new(self.channel);
-        let record_stream = match client.subscribe(ResourceMeteringRequest {}).await {
-            Ok(stream) => stream.into_inner().map(|r| Either::Left(r)),
-            Err(_) => {
-                // TODO: internal error
-                return Err(());
+    async fn run_once_tikv(&mut self, endpoint: &Endpoint) -> State {
+        let connection = tokio::select! {
+            _ = &mut self.shutdown => return State::Shutdown,
+            connection = endpoint.connect() => match connection {
+                Ok(connection) => connection,
+                Err(error) => {
+                    emit!(TopSQLPubSubConnectError { error });
+                    return State::RetryDelay;
+                }
             }
         };
+        let mut client = ResourceMeteringPubSubClient::new(connection);
 
-        let instance_stream = IntervalStream::new(tokio::time::interval(Duration::from_secs(30)))
-            .map(|_| {
-                Either::Right((
-                    self.config.instance.clone(),
-                    self.config.instance_type.clone(),
-                ))
-            });
-
-        let instance = self.config.instance.clone();
-        let instance_type = self.config.instance_type.clone();
-        let mut stream = select(record_stream, instance_stream)
-            .take_until(self.shutdown)
-            .take_while(|item| {
-                ready(match item {
-                    Either::Left(record) => record.is_ok(),
-                    Either::Right(_) => true,
-                })
-            })
-            .filter_map(|item| {
-                ready({
-                    match item {
-                        Either::Left(record) => {
-                            let record = record.unwrap();
-                            emit!(BytesReceived {
-                                byte_size: record.size_of(),
-                                protocol: "http", // TODO: or https
-                            });
-                            record.record_oneof.map(|r| match r {
-                                RecordOneof::Record(record) => {
-                                    let (sql_digest, plan_digest, tag_label) =
-                                        match ResourceGroupTag::decode(
-                                            record.resource_group_tag.as_slice(),
-                                        ) {
-                                            Ok(resource_tag) => {
-                                                if resource_tag.sql_digest.is_none() {
-                                                    return stream::iter(vec![]);
-                                                }
-                                                (
-                                                    hex::encode_upper(
-                                                        resource_tag.sql_digest.unwrap_or(vec![]),
-                                                    ),
-                                                    hex::encode_upper(
-                                                        resource_tag.plan_digest.unwrap_or(vec![]),
-                                                    ),
-                                                    match resource_tag.label {
-                                                        Some(1) => "row".to_owned(),
-                                                        Some(2) => "index".to_owned(),
-                                                        _ => "unknown".to_owned(),
-                                                    },
-                                                )
-                                            }
-                                            Err(_) => return stream::iter(vec![]),
-                                        };
-                                    let timestamps = record
-                                        .items
-                                        .iter()
-                                        .map(|item| {
-                                            DateTime::<Utc>::from_utc(
-                                                NaiveDateTime::from_timestamp(
-                                                    item.timestamp_sec as i64,
-                                                    0,
-                                                ),
-                                                Utc,
-                                            )
-                                        })
-                                        .collect::<Vec<_>>();
-                                    let mut labels = vec![
-                                        ("__name__", String::new()),
-                                        ("instance", instance.clone()),
-                                        ("instance_type", instance_type.clone()),
-                                        ("sql_digest", sql_digest),
-                                        ("plan_digest", plan_digest),
-                                        ("tag_label", tag_label),
-                                    ];
-                                    let mut values = vec![];
-
-                                    let mut logs = vec![];
-
-                                    // cpu_time_ms
-                                    labels[0].1 = "cpu_time_ms".to_owned();
-                                    values.extend(
-                                        record.items.iter().map(|item| item.cpu_time_ms as f64),
-                                    );
-                                    logs.push(make_metric_like_log_event(
-                                        &labels,
-                                        &timestamps,
-                                        &values,
-                                    ));
-
-                                    // read_keys
-                                    labels[0].1 = "read_keys".to_owned();
-                                    values.clear();
-                                    values.extend(
-                                        record.items.iter().map(|item| item.read_keys as f64),
-                                    );
-                                    logs.push(make_metric_like_log_event(
-                                        &labels,
-                                        &timestamps,
-                                        &values,
-                                    ));
-
-                                    // write_keys
-                                    labels[0].1 = "write_keys".to_owned();
-                                    values.clear();
-                                    values.extend(
-                                        record.items.iter().map(|item| item.write_keys as f64),
-                                    );
-                                    logs.push(make_metric_like_log_event(
-                                        &labels,
-                                        &timestamps,
-                                        &values,
-                                    ));
-
-                                    emit!(EventsReceived {
-                                        count: logs.len(),
-                                        byte_size: logs.size_of(),
-                                    });
-                                    stream::iter(logs)
-                                }
-                            })
-                        }
-                        Either::Right((instance, instance_type)) => {
-                            Some(stream::iter(vec![make_metric_like_log_event(
-                                &[
-                                    ("__name__", "instance".to_owned()),
-                                    ("instance", instance),
-                                    ("instance_type", instance_type),
-                                ],
-                                &[Utc::now()],
-                                &[1.0],
-                            )]))
-                        }
-                    }
-                })
-            })
-            .flatten();
-
-        match self.out.send_event_stream(&mut stream).await {
-            Ok(()) => {
-                info!("Finished sending.");
-                Ok(())
+        let stream = tokio::select! {
+            _ = &mut self.shutdown => return State::Shutdown,
+            result = client.subscribe(ResourceMeteringRequest {}) => match result {
+                Ok(stream) => stream,
+                Err(error) => {
+                    emit!(TopSQLPubSubSubscribeError { error });
+                    return State::RetryDelay;
+                }
             }
-            Err(_) => Err(()),
+        };
+        let mut response_stream = stream.into_inner();
+        let mut instance_stream =
+            IntervalStream::new(tokio::time::interval(Duration::from_secs(30)));
+
+        loop {
+            tokio::select! {
+                _ = &mut self.shutdown => break State::Shutdown,
+                _ = instance_stream.next() => self.handle_instance().await,
+                response = response_stream.next() => match response {
+                    Some(Ok(response)) => self.handle_tikv_response(response).await,
+                    Some(Err(error)) => break translate_error(error),
+                    None => break State::RetryNow,
+                }
+            }
         }
+    }
+
+    async fn handle_instance(&mut self) {
+        let event = make_metric_like_log_event(
+            &[
+                ("__name__", "instance".to_owned()),
+                ("instance", self.config.instance.clone()),
+                ("instance_type", self.config.instance_type.clone()),
+            ],
+            &[Utc::now()],
+            &[1.0],
+        );
+
+        if let Err(error) = self.out.send_event(event).await {
+            emit!(StreamClosedError { error, count: 1 })
+        }
+    }
+
+    async fn handle_tidb_response(&mut self, response: TopSqlSubResponse) {
+        emit!(BytesReceived {
+            byte_size: response.size_of(),
+            protocol: "http", // TODO: or https
+        });
+
+        let events = self.parse_tidb_response(response);
+        let count = events.len();
+        emit!(EventsReceived {
+            byte_size: events.size_of(),
+            count: count,
+        });
+        if let Err(error) = self.out.send_batch(events).await {
+            emit!(StreamClosedError { error, count })
+        }
+    }
+
+    async fn handle_tikv_response(&mut self, response: ResourceUsageRecord) {
+        emit!(BytesReceived {
+            byte_size: response.size_of(),
+            protocol: "http", // TODO: or https
+        });
+
+        let events = self.parse_tikv_response(response);
+        let count = events.len();
+        emit!(EventsReceived {
+            byte_size: events.size_of(),
+            count: count,
+        });
+        if let Err(error) = self.out.send_batch(events).await {
+            emit!(StreamClosedError { error, count })
+        }
+    }
+
+    fn parse_tidb_response(&self, response: TopSqlSubResponse) -> Vec<LogEvent> {
+        match response.resp_oneof {
+            Some(RespOneof::Record(record)) => self.parse_tidb_record(record),
+            Some(RespOneof::SqlMeta(sql_meta)) => self.parse_tidb_sql_meta(sql_meta),
+            Some(RespOneof::PlanMeta(plan_meta)) => self.parse_tidb_plan_meta(plan_meta),
+            None => vec![],
+        }
+    }
+
+    fn parse_tikv_response(&self, response: ResourceUsageRecord) -> Vec<LogEvent> {
+        match response.record_oneof {
+            Some(RecordOneof::Record(record)) => self.parse_tikv_record(record),
+            None => vec![],
+        }
+    }
+
+    fn parse_tidb_record(&self, record: TopSqlRecord) -> Vec<LogEvent> {
+        let timestamps = record
+            .items
+            .iter()
+            .map(|item| {
+                DateTime::<Utc>::from_utc(
+                    NaiveDateTime::from_timestamp(item.timestamp_sec as i64, 0),
+                    Utc,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut labels = vec![
+            ("__name__", String::new()),
+            ("instance", String::new()),
+            ("instance_type", String::new()),
+            ("sql_digest", String::new()),
+            ("plan_digest", String::new()),
+        ];
+        const NAME_INDEX: usize = 0;
+        const INSTANCE_INDEX: usize = 1;
+        const INSTANCE_TYPE_INDEX: usize = 2;
+        const SQL_DIGEST_INDEX: usize = 3;
+        const PLAN_DIGEST_INDEX: usize = 4;
+        let mut values = vec![];
+
+        let mut logs = vec![];
+
+        // cpu_time_ms
+        labels[NAME_INDEX].1 = "cpu_time_ms".to_owned();
+        labels[INSTANCE_INDEX].1 = self.config.instance.clone();
+        labels[INSTANCE_TYPE_INDEX].1 = self.config.instance_type.clone();
+        labels[SQL_DIGEST_INDEX].1 = hex::encode_upper(record.sql_digest);
+        labels[PLAN_DIGEST_INDEX].1 = hex::encode_upper(record.plan_digest);
+        values.extend(record.items.iter().map(|item| item.cpu_time_ms as f64));
+        logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+
+        // stmt_exec_count
+        labels[NAME_INDEX].1 = "stmt_exec_count".to_owned();
+        values.clear();
+        values.extend(record.items.iter().map(|item| item.stmt_exec_count as f64));
+        logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+
+        // stmt_duration_sum_ns
+        labels[NAME_INDEX].1 = "stmt_duration_sum_ns".to_owned();
+        values.clear();
+        values.extend(
+            record
+                .items
+                .iter()
+                .map(|item| item.stmt_duration_sum_ns as f64),
+        );
+        logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+
+        // stmt_duration_count
+        labels[NAME_INDEX].1 = "stmt_duration_count".to_owned();
+        values.clear();
+        values.extend(
+            record
+                .items
+                .iter()
+                .map(|item| item.stmt_duration_count as f64),
+        );
+        logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+
+        // stmt_kv_exec_count
+        let tikv_instances = record
+            .items
+            .iter()
+            .flat_map(|item| item.stmt_kv_exec_count.keys())
+            .collect::<BTreeSet<_>>();
+        labels[NAME_INDEX].1 = "stmt_kv_exec_count".to_owned();
+        labels[INSTANCE_TYPE_INDEX].1 = "tikv".to_owned();
+        for tikv_instance in tikv_instances {
+            values.clear();
+            labels[INSTANCE_INDEX].1 = tikv_instance.clone();
+            values.extend(record.items.iter().map(|item| {
+                item.stmt_kv_exec_count
+                    .get(tikv_instance)
+                    .cloned()
+                    .unwrap_or_default() as f64
+            }));
+            logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+        }
+
+        logs
+    }
+
+    fn parse_tidb_sql_meta(&self, sql_meta: SqlMeta) -> Vec<LogEvent> {
+        vec![make_metric_like_log_event(
+            &[
+                ("__name__", "sql_meta".to_owned()),
+                ("sql_digest", hex::encode_upper(sql_meta.sql_digest)),
+                ("normalized_sql", sql_meta.normalized_sql),
+                ("is_internal_sql", sql_meta.is_internal_sql.to_string()),
+            ],
+            &[Utc::now()],
+            &[1.0],
+        )]
+    }
+
+    fn parse_tidb_plan_meta(&self, plan_meta: PlanMeta) -> Vec<LogEvent> {
+        vec![make_metric_like_log_event(
+            &[
+                ("__name__", "plan_meta".to_owned()),
+                ("plan_digest", hex::encode_upper(plan_meta.plan_digest)),
+                ("normalized_plan", plan_meta.normalized_plan),
+            ],
+            &[Utc::now()],
+            &[1.0],
+        )]
+    }
+
+    fn parse_tikv_record(&self, record: GroupTagRecord) -> Vec<LogEvent> {
+        let (sql_digest, plan_digest, tag_label) =
+            match ResourceGroupTag::decode(record.resource_group_tag.as_slice()) {
+                Ok(resource_tag) => {
+                    if resource_tag.sql_digest.is_none() {
+                        return vec![];
+                    }
+                    (
+                        hex::encode_upper(resource_tag.sql_digest.unwrap_or(vec![])),
+                        hex::encode_upper(resource_tag.plan_digest.unwrap_or(vec![])),
+                        match resource_tag.label {
+                            Some(1) => "row".to_owned(),
+                            Some(2) => "index".to_owned(),
+                            _ => "unknown".to_owned(),
+                        },
+                    )
+                }
+                Err(_) => return vec![],
+            };
+        let timestamps = record
+            .items
+            .iter()
+            .map(|item| {
+                DateTime::<Utc>::from_utc(
+                    NaiveDateTime::from_timestamp(item.timestamp_sec as i64, 0),
+                    Utc,
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut labels = vec![
+            ("__name__", String::new()),
+            ("instance", self.config.instance.clone()),
+            ("instance_type", self.config.instance_type.clone()),
+            ("sql_digest", sql_digest),
+            ("plan_digest", plan_digest),
+            ("tag_label", tag_label),
+        ];
+        let mut values = vec![];
+
+        let mut logs = vec![];
+
+        // cpu_time_ms
+        labels[0].1 = "cpu_time_ms".to_owned();
+        values.extend(record.items.iter().map(|item| item.cpu_time_ms as f64));
+        logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+
+        // read_keys
+        labels[0].1 = "read_keys".to_owned();
+        values.clear();
+        values.extend(record.items.iter().map(|item| item.read_keys as f64));
+        logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+
+        // write_keys
+        labels[0].1 = "write_keys".to_owned();
+        values.clear();
+        values.extend(record.items.iter().map(|item| item.write_keys as f64));
+        logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
+
+        logs
     }
 }
 
@@ -613,6 +579,24 @@ fn make_metric_like_log_event(
     log.insert("timestamps".to_owned(), Value::Array(timestamps_vec));
     log.insert("values".to_owned(), Value::Array(values_vec));
     LogEvent::from_map(log, EventMetadata::default())
+}
+
+fn translate_error(error: tonic::Status) -> State {
+    if is_reset(&error) {
+        State::RetryNow
+    } else {
+        emit!(TopSQLPubSubReceiveError { error });
+        State::RetryDelay
+    }
+}
+
+fn is_reset(error: &tonic::Status) -> bool {
+    error
+        .source()
+        .and_then(|source| source.downcast_ref::<hyper::Error>())
+        .and_then(|error| error.source())
+        .and_then(|source| source.downcast_ref::<h2::Error>())
+        .map_or(false, |error| error.is_remote() && error.is_reset())
 }
 
 #[cfg(test)]
