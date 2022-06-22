@@ -137,8 +137,8 @@ mod tcp;
 mod template;
 #[cfg(feature = "transforms-throttle")]
 mod throttle;
-#[cfg(feature = "sources-tidb_topsql")]
-mod tidb_topsql;
+#[cfg(feature = "sources-topsql_pubsub")]
+mod topsql_pubsub;
 mod udp;
 mod unix;
 mod vector;
@@ -298,8 +298,8 @@ pub(crate) use self::syslog::*;
 pub(crate) use self::tag_cardinality_limit::*;
 #[cfg(feature = "transforms-throttle")]
 pub(crate) use self::throttle::*;
-#[cfg(feature = "sources-tidb_topsql")]
-pub(crate) use self::tidb_topsql::*;
+#[cfg(feature = "sources-topsql_pubsub")]
+pub(crate) use self::topsql_pubsub::*;
 #[cfg(all(
     any(
         feature = "sinks-socket",
