@@ -186,9 +186,9 @@ impl HttpSink for VMImportSink {
         let mut w = GzEncoder::new(buffer.writer(), Compression::default());
 
         for event in events {
-            w.write(event.get().as_bytes())
+            w.write_all(event.get().as_bytes())
                 .expect("Writing to Vec can't fail");
-            w.write(b"\n").expect("Writing to Vec can't fail");
+            w.write_all(b"\n").expect("Writing to Vec can't fail");
         }
         let body = w
             .finish()

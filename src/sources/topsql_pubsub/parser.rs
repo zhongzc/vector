@@ -16,6 +16,7 @@ use super::proto::{
 };
 use crate::event::{EventMetadata, LogEvent, Value};
 
+#[derive(Clone)]
 pub struct Parser {
     instance: String,
     instance_type: String,

@@ -1,6 +1,7 @@
 mod parser;
 mod proto;
 
+use std::future::Future;
 use std::time::Duration;
 
 use futures::{StreamExt, TryFutureExt};
@@ -10,17 +11,15 @@ use snafu::{Error, ResultExt, Snafu};
 use tokio_stream::wrappers::IntervalStream;
 use tonic::transport::{Channel, Endpoint};
 use vector_common::byte_size_of::ByteSizeOf;
+use vector_core::event::LogEvent;
 
 use self::{
     parser::Parser,
     proto::{
         resource_metering_pubsub::{
-            resource_metering_pub_sub_client::ResourceMeteringPubSubClient,
-            ResourceMeteringRequest, ResourceUsageRecord,
+            resource_metering_pub_sub_client::ResourceMeteringPubSubClient, ResourceMeteringRequest,
         },
-        topsql_pubsub::{
-            top_sql_pub_sub_client::TopSqlPubSubClient, TopSqlSubRequest, TopSqlSubResponse,
-        },
+        topsql_pubsub::{top_sql_pub_sub_client::TopSqlPubSubClient, TopSqlSubRequest},
     },
 };
 use crate::{
@@ -145,15 +144,17 @@ impl TopSQLSource {
     }
 
     async fn run(mut self) -> crate::Result<()> {
-        let channel = Channel::from_shared(format!("http://{}", self.config.instance))
-            .context(EndpointSnafu)?;
+        let endpoint = Channel::from_shared(format!("http://{}", self.config.instance))
+            .context(EndpointSnafu)?; // TODO: https
 
         loop {
-            match match self.config.instance_type.as_str() {
-                "tidb" => self.run_once_tidb(&channel).await,
-                "tikv" => self.run_once_tikv(&channel).await,
+            let state = match self.config.instance_type.as_str() {
+                "tidb" => self.run_once_tidb(&endpoint).await,
+                "tikv" => self.run_once_tikv(&endpoint).await,
                 _ => unreachable!(),
-            } {
+            };
+
+            match state {
                 State::RetryNow => debug!("Retrying immediately."),
                 State::RetryDelay => {
                     info!(
@@ -170,6 +171,41 @@ impl TopSQLSource {
     }
 
     async fn run_once_tidb(&mut self, endpoint: &Endpoint) -> State {
+        let parser = self.parser.clone();
+        self.run_once(
+            endpoint,
+            TopSqlPubSubClient::new,
+            |mut client| async move { client.subscribe(TopSqlSubRequest {}).await },
+            |response| parser.parse_tidb_response(response),
+        )
+        .await
+    }
+
+    async fn run_once_tikv(&mut self, endpoint: &Endpoint) -> State {
+        let parser = self.parser.clone();
+        self.run_once(
+            endpoint,
+            ResourceMeteringPubSubClient::new,
+            |mut client| async move { client.subscribe(ResourceMeteringRequest {}).await },
+            |response| parser.parse_tikv_response(response),
+        )
+        .await
+    }
+
+    async fn run_once<CB, SB, C, FS, R, RC>(
+        &mut self,
+        endpoint: &Endpoint,
+        client_builder: CB,
+        stream_builder: SB,
+        response_converter: RC,
+    ) -> State
+    where
+        CB: FnOnce(Channel) -> C,
+        SB: FnOnce(C) -> FS,
+        FS: Future<Output = Result<tonic::Response<tonic::codec::Streaming<R>>, tonic::Status>>,
+        RC: Fn(R) -> Vec<LogEvent>,
+        R: ByteSizeOf,
+    {
         let connection = tokio::select! {
             _ = &mut self.shutdown => return State::Shutdown,
             connection = endpoint.connect() => match connection {
@@ -180,11 +216,11 @@ impl TopSQLSource {
                 }
             }
         };
-        let mut client = TopSqlPubSubClient::new(connection);
+        let client = client_builder(connection);
 
         let stream = tokio::select! {
             _ = &mut self.shutdown => return State::Shutdown,
-            result = client.subscribe(TopSqlSubRequest {}) => match result {
+            result = stream_builder(client) => match result {
                 Ok(stream) => stream,
                 Err(error) => {
                     emit!(TopSQLPubSubSubscribeError { error });
@@ -201,7 +237,7 @@ impl TopSQLSource {
                 _ = &mut self.shutdown => break State::Shutdown,
                 _ = instance_stream.next() => self.handle_instance().await,
                 response = response_stream.next() => match response {
-                    Some(Ok(response)) => self.handle_tidb_response(response).await,
+                    Some(Ok(response)) => self.handle_response(response, &response_converter).await,
                     Some(Err(error)) => break translate_error(error),
                     None => break State::RetryNow,
                 }
@@ -209,43 +245,24 @@ impl TopSQLSource {
         }
     }
 
-    async fn run_once_tikv(&mut self, endpoint: &Endpoint) -> State {
-        let connection = tokio::select! {
-            _ = &mut self.shutdown => return State::Shutdown,
-            connection = endpoint.connect() => match connection {
-                Ok(connection) => connection,
-                Err(error) => {
-                    emit!(TopSQLPubSubConnectError { error });
-                    return State::RetryDelay;
-                }
-            }
-        };
-        let mut client = ResourceMeteringPubSubClient::new(connection);
+    async fn handle_response<R, RC>(&mut self, response: R, response_converter: &RC)
+    where
+        RC: Fn(R) -> Vec<LogEvent>,
+        R: ByteSizeOf,
+    {
+        emit!(BytesReceived {
+            byte_size: response.size_of(),
+            protocol: "http", // TODO: or https
+        });
 
-        let stream = tokio::select! {
-            _ = &mut self.shutdown => return State::Shutdown,
-            result = client.subscribe(ResourceMeteringRequest {}) => match result {
-                Ok(stream) => stream,
-                Err(error) => {
-                    emit!(TopSQLPubSubSubscribeError { error });
-                    return State::RetryDelay;
-                }
-            }
-        };
-        let mut response_stream = stream.into_inner();
-        let mut instance_stream =
-            IntervalStream::new(tokio::time::interval(Duration::from_secs(30)));
-
-        loop {
-            tokio::select! {
-                _ = &mut self.shutdown => break State::Shutdown,
-                _ = instance_stream.next() => self.handle_instance().await,
-                response = response_stream.next() => match response {
-                    Some(Ok(response)) => self.handle_tikv_response(response).await,
-                    Some(Err(error)) => break translate_error(error),
-                    None => break State::RetryNow,
-                }
-            }
+        let events = response_converter(response);
+        let count = events.len();
+        emit!(EventsReceived {
+            byte_size: events.size_of(),
+            count,
+        });
+        if let Err(error) = self.out.send_batch(events).await {
+            emit!(StreamClosedError { error, count })
         }
     }
 
@@ -253,40 +270,6 @@ impl TopSQLSource {
         let event = self.parser.parse_instance();
         if let Err(error) = self.out.send_event(event).await {
             emit!(StreamClosedError { error, count: 1 })
-        }
-    }
-
-    async fn handle_tidb_response(&mut self, response: TopSqlSubResponse) {
-        emit!(BytesReceived {
-            byte_size: response.size_of(),
-            protocol: "http", // TODO: or https
-        });
-
-        let events = self.parser.parse_tidb_response(response);
-        let count = events.len();
-        emit!(EventsReceived {
-            byte_size: events.size_of(),
-            count,
-        });
-        if let Err(error) = self.out.send_batch(events).await {
-            emit!(StreamClosedError { error, count })
-        }
-    }
-
-    async fn handle_tikv_response(&mut self, response: ResourceUsageRecord) {
-        emit!(BytesReceived {
-            byte_size: response.size_of(),
-            protocol: "http", // TODO: or https
-        });
-
-        let events = self.parser.parse_tikv_response(response);
-        let count = events.len();
-        emit!(EventsReceived {
-            byte_size: events.size_of(),
-            count,
-        });
-        if let Err(error) = self.out.send_batch(events).await {
-            emit!(StreamClosedError { error, count })
         }
     }
 }
