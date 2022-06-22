@@ -1,24 +1,29 @@
 use std::io::Write;
 
 use bytes::{BufMut, Bytes, BytesMut};
-use flate2::write::GzEncoder;
-use flate2::Compression;
+use flate2::{write::GzEncoder, Compression};
 use futures_util::{FutureExt, SinkExt};
 use http::{Request, Uri};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use snafu::ResultExt;
-use vector_core::config::{AcknowledgementsConfig, Input};
-use vector_core::event::Event;
-
-use crate::config::{self, GenerateConfig, SinkConfig, SinkDescription};
-use crate::http::HttpClient;
-use crate::sinks;
-use crate::sinks::util::http::{BatchedHttpSink, HttpEventEncoder, HttpSink};
-use crate::sinks::util::{
-    BatchConfig, BoxedRawValue, JsonArrayBuffer, SinkBatchSettings, TowerRequestConfig,
+use vector_core::{
+    config::{AcknowledgementsConfig, Input},
+    event::Event,
 };
-use crate::tls::{TlsConfig, TlsSettings};
+
+use crate::{
+    config::{self, GenerateConfig, SinkConfig, SinkDescription},
+    http::HttpClient,
+    sinks::{
+        self,
+        util::{
+            http::{BatchedHttpSink, HttpEventEncoder, HttpSink},
+            BatchConfig, BoxedRawValue, JsonArrayBuffer, SinkBatchSettings, TowerRequestConfig,
+        },
+    },
+    tls::{TlsConfig, TlsSettings},
+};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct VMImportDefaultBatchSettings;
@@ -200,5 +205,72 @@ impl HttpSink for VMImportSink {
         let request = builder.body(body).unwrap();
 
         Ok(request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::collections::BTreeMap;
+    use std::future::ready;
+
+    use chrono::Utc;
+    use futures_util::{stream, TryFutureExt};
+    use http::Response;
+    use hyper::{
+        service::{make_service_fn, service_fn},
+        Server,
+    };
+    use lookup::path;
+    use vector_core::{event::LogEvent, Error};
+
+    use crate::{
+        config::SinkContext,
+        test_util::{
+            components::{run_and_assert_sink_compliance, HTTP_SINK_TAGS},
+            next_addr, test_generate_config,
+        },
+    };
+
+    #[test]
+    fn generate_config() {
+        test_generate_config::<VMImportConfig>();
+    }
+
+    #[tokio::test]
+    async fn send_event() {
+        let service =
+            service_fn(
+                |req| async move { Ok::<_, hyper::Error>(Response::new(hyper::Body::empty())) },
+            );
+
+        let addr = next_addr();
+        let server = Server::bind(&addr)
+            .serve(make_service_fn(move |_| ready(Ok::<_, Error>(service))))
+            .map_err(|error| panic!("Server error: {}", error));
+
+        tokio::spawn(server);
+
+        let config = VMImportConfig {
+            endpoint: format!("http://{}", addr),
+            batch: Default::default(),
+            request: Default::default(),
+            tls: None,
+        };
+        let cx = SinkContext::new_test();
+        let (sink, _) = config.build(cx).await.unwrap();
+
+        let mut labels = value::Value::from(BTreeMap::default());
+        labels.insert("__name__", "cpu");
+        let mut timestamps = value::Value::from(Vec::<value::Value>::default());
+        timestamps.insert(path!(0), Utc::now());
+        let mut values = value::Value::from(Vec::<value::Value>::default());
+        values.insert(path!(0), 1.0);
+        let mut log = LogEvent::from_map(Default::default(), Default::default());
+        log.insert("labels", labels);
+        log.insert("timestamps", timestamps);
+        log.insert("values", values);
+        run_and_assert_sink_compliance(sink, stream::once(ready(log)), &HTTP_SINK_TAGS).await;
     }
 }

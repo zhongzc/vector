@@ -45,12 +45,12 @@
 
 [sources.tidb]
 type = "topsql_pubsub"
-instance = "localhost:10080"
+instance = "127.0.0.1:10080"
 instance_type = "tidb"
 
 [sources.tikv]
 type = "topsql_pubsub"
-instance = "localhost:20160"
+instance = "127.0.0.1:20160"
 instance_type = "tikv"
 
 [sinks.vm]
