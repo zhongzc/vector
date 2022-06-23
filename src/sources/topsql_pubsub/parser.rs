@@ -86,7 +86,7 @@ impl Parser {
         let mut logs = vec![];
 
         // cpu_time_ms
-        labels[NAME_INDEX].1 = "cpu_time_ms".to_owned();
+        labels[NAME_INDEX].1 = "topsql_cpu_time_ms".to_owned();
         labels[INSTANCE_INDEX].1 = self.instance.clone();
         labels[INSTANCE_TYPE_INDEX].1 = self.instance_type.clone();
         labels[SQL_DIGEST_INDEX].1 = hex::encode_upper(record.sql_digest);
@@ -101,7 +101,7 @@ impl Parser {
         logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
 
         // stmt_duration_sum_ns
-        labels[NAME_INDEX].1 = "stmt_duration_sum_ns".to_owned();
+        labels[NAME_INDEX].1 = "topsql_stmt_duration_sum_ns".to_owned();
         values.clear();
         values.extend(
             record
@@ -112,7 +112,7 @@ impl Parser {
         logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
 
         // stmt_duration_count
-        labels[NAME_INDEX].1 = "stmt_duration_count".to_owned();
+        labels[NAME_INDEX].1 = "topsql_stmt_duration_count".to_owned();
         values.clear();
         values.extend(
             record
@@ -128,7 +128,7 @@ impl Parser {
             .iter()
             .flat_map(|item| item.stmt_kv_exec_count.keys())
             .collect::<BTreeSet<_>>();
-        labels[NAME_INDEX].1 = "stmt_kv_exec_count".to_owned();
+        labels[NAME_INDEX].1 = "topsql_stmt_kv_exec_count".to_owned();
         labels[INSTANCE_TYPE_INDEX].1 = "tikv".to_owned();
         for tikv_instance in tikv_instances {
             values.clear();
@@ -148,7 +148,7 @@ impl Parser {
     fn parse_tidb_sql_meta(&self, sql_meta: SqlMeta) -> Vec<LogEvent> {
         vec![make_metric_like_log_event(
             &[
-                ("__name__", "sql_meta".to_owned()),
+                ("__name__", "topsql_sql_meta".to_owned()),
                 ("sql_digest", hex::encode_upper(sql_meta.sql_digest)),
                 ("normalized_sql", sql_meta.normalized_sql),
                 ("is_internal_sql", sql_meta.is_internal_sql.to_string()),
@@ -161,7 +161,7 @@ impl Parser {
     fn parse_tidb_plan_meta(&self, plan_meta: PlanMeta) -> Vec<LogEvent> {
         vec![make_metric_like_log_event(
             &[
-                ("__name__", "plan_meta".to_owned()),
+                ("__name__", "topsql_plan_meta".to_owned()),
                 ("plan_digest", hex::encode_upper(plan_meta.plan_digest)),
                 ("normalized_plan", plan_meta.normalized_plan),
             ],
@@ -212,18 +212,18 @@ impl Parser {
         let mut logs = vec![];
 
         // cpu_time_ms
-        labels[0].1 = "cpu_time_ms".to_owned();
+        labels[0].1 = "topsql_cpu_time_ms".to_owned();
         values.extend(record.items.iter().map(|item| item.cpu_time_ms as f64));
         logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
 
         // read_keys
-        labels[0].1 = "read_keys".to_owned();
+        labels[0].1 = "topsql_read_keys".to_owned();
         values.clear();
         values.extend(record.items.iter().map(|item| item.read_keys as f64));
         logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
 
         // write_keys
-        labels[0].1 = "write_keys".to_owned();
+        labels[0].1 = "topsql_write_keys".to_owned();
         values.clear();
         values.extend(record.items.iter().map(|item| item.write_keys as f64));
         logs.push(make_metric_like_log_event(&labels, &timestamps, &values));
