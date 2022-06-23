@@ -9,7 +9,7 @@ use http::uri::InvalidUri;
 use serde::{Deserialize, Serialize};
 use snafu::{Error, ResultExt, Snafu};
 use tokio_stream::wrappers::IntervalStream;
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity};
 use vector_common::byte_size_of::ByteSizeOf;
 use vector_core::event::LogEvent;
 
@@ -30,7 +30,7 @@ use crate::{
     },
     shutdown::ShutdownSignal,
     sources,
-    tls::TlsConfig,
+    tls::{TlsConfig, TlsSettings},
     SourceSender,
 };
 
@@ -40,6 +40,8 @@ enum ConfigError {
     UnsupportedInstanceType { instance_type: String },
     #[snafu(display("Could not create endpoint: {}", source))]
     Endpoint { source: InvalidUri },
+    #[snafu(display("Could not set up endpoint TLS settings: {}", source))]
+    EndpointTls { source: tonic::transport::Error },
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -58,7 +60,7 @@ const fn default_retry_delay() -> f64 {
 }
 
 inventory::submit! {
-    SourceDescription::new::<TopSQLPubSubConfig>("topsql")
+    SourceDescription::new::<TopSQLPubSubConfig>("topsql_pubsub")
 }
 
 impl GenerateConfig for TopSQLPubSubConfig {
@@ -86,11 +88,16 @@ impl SourceConfig for TopSQLPubSubConfig {
                 .into());
             }
         }
+
+        let (instance, endpoint, uri) = self.parse_instance()?;
         let source = TopSQLSource::new(
-            self.clone(),
+            self.instance_type.clone(),
+            endpoint,
+            uri,
+            TlsSettings::from_options(&self.tls)?,
             cx.shutdown,
             cx.out,
-            Parser::new(self.instance.clone(), self.instance_type.clone()),
+            Parser::new(instance, self.instance_type.clone()),
             Duration::from_secs_f64(self.retry_delay_seconds),
         )
         .run()
@@ -112,8 +119,47 @@ impl SourceConfig for TopSQLPubSubConfig {
     }
 }
 
+impl TopSQLPubSubConfig {
+    // return instance, endpoint, and uri
+    fn parse_instance(&self) -> crate::Result<(String, String, http::Uri)> {
+        let (instance, endpoint) = match (
+            self.instance.starts_with("http://"),
+            self.instance.starts_with("https://"),
+            self.tls.is_some(),
+        ) {
+            (true, _, _) => {
+                let instance = self.instance.strip_prefix("http://").unwrap().to_owned();
+                let endpoint = self.instance.clone();
+                (instance, endpoint)
+            }
+            (false, true, _) => {
+                let instance = self.instance.strip_prefix("https://").unwrap().to_owned();
+                let endpoint = self.instance.clone();
+                (instance, endpoint)
+            }
+            (false, false, true) => {
+                let instance = self.instance.clone();
+                let endpoint = format!("https://{}", self.instance);
+                (instance, endpoint)
+            }
+            (false, false, false) => {
+                let instance = self.instance.clone();
+                let endpoint = format!("http://{}", self.instance);
+                (instance, endpoint)
+            }
+        };
+        let uri = endpoint
+            .parse::<http::Uri>()
+            .context(sources::UriParseSnafu)?;
+        Ok((instance, endpoint, uri))
+    }
+}
+
 struct TopSQLSource {
-    config: TopSQLPubSubConfig,
+    instance_type: String,
+    endpoint: String,
+    uri: http::Uri,
+    tls: TlsSettings,
     shutdown: ShutdownSignal,
     out: SourceSender,
     parser: Parser,
@@ -127,15 +173,22 @@ enum State {
 }
 
 impl TopSQLSource {
+    #[allow(clippy::too_many_arguments)]
     const fn new(
-        config: TopSQLPubSubConfig,
+        instance_type: String,
+        endpoint: String,
+        uri: http::Uri,
+        tls: TlsSettings,
         shutdown: ShutdownSignal,
         out: SourceSender,
         parser: Parser,
         retry_delay: Duration,
     ) -> Self {
         Self {
-            config,
+            instance_type,
+            endpoint,
+            uri,
+            tls,
             shutdown,
             out,
             parser,
@@ -144,11 +197,15 @@ impl TopSQLSource {
     }
 
     async fn run(mut self) -> crate::Result<()> {
-        let endpoint = Channel::from_shared(format!("http://{}", self.config.instance))
-            .context(EndpointSnafu)?; // TODO: https
+        let mut endpoint = Channel::from_shared(self.endpoint.clone()).context(EndpointSnafu)?;
+        if self.uri.scheme() != Some(&http::uri::Scheme::HTTP) {
+            endpoint = endpoint
+                .tls_config(self.make_tls_config())
+                .context(EndpointTlsSnafu)?;
+        }
 
         loop {
-            let state = match self.config.instance_type.as_str() {
+            let state = match self.instance_type.as_str() {
                 "tidb" => self.run_once_tidb(&endpoint).await,
                 "tikv" => self.run_once_tikv(&endpoint).await,
                 _ => unreachable!(),
@@ -252,7 +309,7 @@ impl TopSQLSource {
     {
         emit!(BytesReceived {
             byte_size: response.size_of(),
-            protocol: "http", // TODO: or https
+            protocol: self.uri.scheme().unwrap().to_string().as_str(),
         });
 
         let events = response_converter(response);
@@ -271,6 +328,18 @@ impl TopSQLSource {
         if let Err(error) = self.out.send_event(event).await {
             emit!(StreamClosedError { error, count: 1 })
         }
+    }
+
+    fn make_tls_config(&self) -> ClientTlsConfig {
+        let host = self.uri.host().unwrap_or_default();
+        let mut config = ClientTlsConfig::new().domain_name(host);
+        if let Some((cert, key)) = self.tls.identity_pem() {
+            config = config.identity(Identity::from_pem(cert, key));
+        }
+        for authority in self.tls.authorities_pem() {
+            config = config.ca_certificate(Certificate::from_pem(authority));
+        }
+        config
     }
 }
 

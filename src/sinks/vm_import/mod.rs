@@ -242,7 +242,7 @@ mod tests {
     async fn send_event() {
         let service =
             service_fn(
-                |req| async move { Ok::<_, hyper::Error>(Response::new(hyper::Body::empty())) },
+                |_| async move { Ok::<_, hyper::Error>(Response::new(hyper::Body::empty())) },
             );
 
         let addr = next_addr();
