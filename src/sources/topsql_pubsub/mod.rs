@@ -365,11 +365,17 @@ fn is_reset(error: &tonic::Status) -> bool {
 mod test {
     use super::*;
 
+    use std::io::{self, Write};
+    use std::net::SocketAddr;
+    use std::path::PathBuf;
     use std::pin::Pin;
 
     use futures::Stream;
     use futures_util::stream;
     use prost::Message;
+    use rcgen::{BasicConstraints, Certificate, CertificateParams, DnType, IsCa, SanType};
+    use tempfile::NamedTempFile;
+    use tonic::transport::ServerTlsConfig;
     use tonic::{Request, Response, Status};
 
     use self::proto::resource_metering_pubsub::{
@@ -390,6 +396,120 @@ mod test {
         crate::test_util::test_generate_config::<TopSQLPubSubConfig>();
     }
 
+    #[tokio::test]
+    async fn test_topsql_scrape_tidb() {
+        let address = next_addr();
+        let config = TopSQLPubSubConfig {
+            instance: address.to_string(),
+            instance_type: "tidb".to_owned(),
+            tls: None,
+            retry_delay_seconds: default_retry_delay(),
+        };
+
+        check_topsql_scrape_tidb(address, config, None).await;
+    }
+
+    #[tokio::test]
+    async fn test_topsql_scrape_tidb_tls() {
+        let address = next_addr();
+        let (ca_file, server_crt, server_key) = generate_tls();
+        let config = TopSQLPubSubConfig {
+            instance: format!("localhost:{}", address.port()),
+            instance_type: "tidb".to_owned(),
+            tls: Some(TlsConfig {
+                ca_file: Some(ca_file.path().to_path_buf()),
+                ..Default::default()
+            }),
+            retry_delay_seconds: default_retry_delay(),
+        };
+
+        check_topsql_scrape_tidb(
+            address,
+            config,
+            Some(ServerTlsConfig::new().identity(Identity::from_pem(server_crt, server_key))),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_topsql_scrape_tikv() {
+        let address = next_addr();
+        let config = TopSQLPubSubConfig {
+            instance: address.to_string(),
+            instance_type: "tikv".to_owned(),
+            tls: None,
+            retry_delay_seconds: default_retry_delay(),
+        };
+
+        check_topsql_scrape_tikv(address, config, None).await;
+    }
+
+    #[tokio::test]
+    async fn test_topsql_scrape_tikv_tls() {
+        let address = next_addr();
+        let (ca_file, server_crt, server_key) = generate_tls();
+        let config = TopSQLPubSubConfig {
+            instance: format!("localhost:{}", address.port()),
+            instance_type: "tikv".to_owned(),
+            tls: Some(TlsConfig {
+                ca_file: Some(ca_file.path().to_path_buf()),
+                ..Default::default()
+            }),
+            retry_delay_seconds: default_retry_delay(),
+        };
+
+        check_topsql_scrape_tikv(
+            address,
+            config,
+            Some(ServerTlsConfig::new().identity(Identity::from_pem(server_crt, server_key))),
+        )
+        .await;
+    }
+
+    async fn check_topsql_scrape_tidb(
+        address: SocketAddr,
+        config: TopSQLPubSubConfig,
+        tls_config: Option<ServerTlsConfig>,
+    ) {
+        tokio::spawn(async move {
+            let svc = TopSqlPubSubServer::new(MockTopSqlPubSubServer {});
+            let mut sb = tonic::transport::Server::builder();
+            if tls_config.is_some() {
+                sb = sb.tls_config(tls_config.unwrap()).unwrap();
+            }
+            sb.add_service(svc).serve(address).await.unwrap();
+        });
+
+        // wait for server to start
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let events =
+            run_and_assert_source_compliance(config, Duration::from_secs(2), &SOURCE_TAGS).await;
+        assert!(!events.is_empty());
+    }
+
+    async fn check_topsql_scrape_tikv(
+        address: SocketAddr,
+        config: TopSQLPubSubConfig,
+        tls_config: Option<ServerTlsConfig>,
+    ) {
+        tokio::spawn(async move {
+            let svc = ResourceMeteringPubSubServer::new(MockResourceMeteringPubSubServer {});
+            let mut sb = tonic::transport::Server::builder();
+            if tls_config.is_some() {
+                sb = sb.tls_config(tls_config.unwrap()).unwrap();
+            }
+            sb.add_service(svc).serve(address).await.unwrap();
+        });
+
+        // wait for server to start
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let events =
+            run_and_assert_source_compliance(config, Duration::from_secs(2), &SOURCE_TAGS).await;
+        assert!(!events.is_empty());
+    }
+
     struct MockTopSqlPubSubServer {}
 
     #[tonic::async_trait]
@@ -401,66 +521,44 @@ mod test {
             &self,
             _: Request<TopSqlSubRequest>,
         ) -> Result<Response<Self::SubscribeStream>, Status> {
+            let dump_record = TopSqlRecord {
+                sql_digest: b"sql_digest".to_vec(),
+                plan_digest: b"plan_digest".to_vec(),
+                items: vec![TopSqlRecordItem {
+                    timestamp_sec: 1655363650,
+                    cpu_time_ms: 10,
+                    stmt_exec_count: 20,
+                    stmt_kv_exec_count: (vec![("127.0.0.1:20180".to_owned(), 10)])
+                        .into_iter()
+                        .collect(),
+                    stmt_duration_sum_ns: 30,
+                    stmt_duration_count: 20,
+                }],
+            };
+
+            let dump_sql_meta = SqlMeta {
+                sql_digest: b"sql_digest".to_vec(),
+                normalized_sql: "sql_text".to_owned(),
+                is_internal_sql: false,
+            };
+
+            let dump_plan_meta = PlanMeta {
+                plan_digest: b"plan_digest".to_vec(),
+                normalized_plan: "plan_text".to_owned(),
+            };
+
             Ok(Response::new(Box::pin(stream::iter(vec![
                 Ok(TopSqlSubResponse {
-                    resp_oneof: Some(RespOneof::Record(TopSqlRecord {
-                        sql_digest: b"sql_digest".to_vec(),
-                        plan_digest: b"plan_digest".to_vec(),
-                        items: vec![TopSqlRecordItem {
-                            timestamp_sec: 1655363650,
-                            cpu_time_ms: 10,
-                            stmt_exec_count: 20,
-                            stmt_kv_exec_count: (vec![("127.0.0.1:20180".to_owned(), 10)])
-                                .into_iter()
-                                .collect(),
-                            stmt_duration_sum_ns: 30,
-                            stmt_duration_count: 20,
-                        }],
-                    })),
+                    resp_oneof: Some(RespOneof::Record(dump_record)),
                 }),
                 Ok(TopSqlSubResponse {
-                    resp_oneof: Some(RespOneof::SqlMeta(SqlMeta {
-                        sql_digest: b"sql_digest".to_vec(),
-                        normalized_sql: "sql_text".to_owned(),
-                        is_internal_sql: false,
-                    })),
+                    resp_oneof: Some(RespOneof::SqlMeta(dump_sql_meta)),
                 }),
                 Ok(TopSqlSubResponse {
-                    resp_oneof: Some(RespOneof::PlanMeta(PlanMeta {
-                        plan_digest: b"plan_digest".to_vec(),
-                        normalized_plan: "plan_text".to_owned(),
-                    })),
+                    resp_oneof: Some(RespOneof::PlanMeta(dump_plan_meta)),
                 }),
             ])) as Self::SubscribeStream))
         }
-    }
-
-    #[tokio::test]
-    async fn test_topsql_scrape_tidb() {
-        let address = next_addr();
-
-        tokio::spawn(async move {
-            let svc = TopSqlPubSubServer::new(MockTopSqlPubSubServer {});
-            tonic::transport::Server::builder()
-                .add_service(svc)
-                .serve(address)
-                .await
-                .unwrap();
-        });
-
-        // wait for server to start
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let config = TopSQLPubSubConfig {
-            instance: address.to_string(),
-            instance_type: "tidb".to_owned(),
-            tls: None,
-            retry_delay_seconds: default_retry_delay(),
-        };
-
-        let events =
-            run_and_assert_source_compliance(config, Duration::from_secs(5), &SOURCE_TAGS).await;
-        assert!(!events.is_empty());
     }
 
     struct MockResourceMeteringPubSubServer {}
@@ -495,31 +593,21 @@ mod test {
         }
     }
 
-    #[tokio::test]
-    async fn test_topsql_scrape_tikv() {
-        let address = next_addr();
+    // generate_tls returns
+    // - file `ca_file`
+    // - signed-by-ca cert in String `server_crt` and `server_key`
+    fn generate_tls() -> (NamedTempFile, String, String) {
+        let mut ca_params = CertificateParams::default();
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        let ca_cert = Certificate::from_params(ca_params).unwrap();
 
-        tokio::spawn(async move {
-            let svc = ResourceMeteringPubSubServer::new(MockResourceMeteringPubSubServer {});
-            tonic::transport::Server::builder()
-                .add_service(svc)
-                .serve(address)
-                .await
-                .unwrap();
-        });
+        let mut server_params = CertificateParams::new(vec!["localhost".to_owned()]);
+        let server_cert = Certificate::from_params(server_params).unwrap();
+        let server_crt = server_cert.serialize_pem_with_signer(&ca_cert).unwrap();
+        let server_key = server_cert.serialize_private_key_pem();
 
-        // wait for server to start
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let config = TopSQLPubSubConfig {
-            instance: address.to_string(),
-            instance_type: "tikv".to_owned(),
-            tls: None,
-            retry_delay_seconds: default_retry_delay(),
-        };
-
-        let events =
-            run_and_assert_source_compliance(config, Duration::from_secs(5), &SOURCE_TAGS).await;
-        assert!(!events.is_empty());
+        let mut ca_file = NamedTempFile::new().unwrap();
+        write!(ca_file, "{}", ca_cert.serialize_pem().unwrap()).unwrap();
+        (ca_file, server_crt, server_key)
     }
 }
