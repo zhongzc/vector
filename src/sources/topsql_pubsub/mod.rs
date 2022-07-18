@@ -1,8 +1,7 @@
-mod parser;
-mod proto;
+mod source;
+mod utils;
 
-use std::future::Future;
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use futures::{StreamExt, TryFutureExt};
 use http::uri::InvalidUri;
@@ -363,33 +362,39 @@ fn is_reset(error: &tonic::Status) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
-    use std::io::{self, Write};
-    use std::net::SocketAddr;
-    use std::path::PathBuf;
-    use std::pin::Pin;
+    use std::{
+        io::{self, Write},
+        net::SocketAddr,
+        path::PathBuf,
+        pin::Pin,
+    };
 
     use futures::Stream;
     use futures_util::stream;
     use prost::Message;
     use rcgen::{BasicConstraints, Certificate, CertificateParams, DnType, IsCa, SanType};
     use tempfile::NamedTempFile;
-    use tonic::transport::ServerTlsConfig;
-    use tonic::{Request, Response, Status};
+    use tonic::{transport::ServerTlsConfig, Request, Response, Status};
 
-    use self::proto::resource_metering_pubsub::{
-        resource_metering_pub_sub_server::{ResourceMeteringPubSub, ResourceMeteringPubSubServer},
-        resource_usage_record::RecordOneof,
-        GroupTagRecord, GroupTagRecordItem, ResourceUsageRecord,
+    use self::proto::{
+        resource_metering_pubsub::{
+            resource_metering_pub_sub_server::{
+                ResourceMeteringPubSub, ResourceMeteringPubSubServer,
+            },
+            resource_usage_record::RecordOneof,
+            GroupTagRecord, GroupTagRecordItem, ResourceUsageRecord,
+        },
+        topsql_pubsub::{
+            top_sql_pub_sub_server::{TopSqlPubSub, TopSqlPubSubServer},
+            top_sql_sub_response::RespOneof,
+            PlanMeta, ResourceGroupTag, SqlMeta, TopSqlRecord, TopSqlRecordItem, TopSqlSubResponse,
+        },
     };
-    use self::proto::topsql_pubsub::{
-        top_sql_pub_sub_server::{TopSqlPubSub, TopSqlPubSubServer},
-        top_sql_sub_response::RespOneof,
-        PlanMeta, ResourceGroupTag, SqlMeta, TopSqlRecord, TopSqlRecordItem, TopSqlSubResponse,
+    use super::*;
+    use crate::test_util::{
+        components::{run_and_assert_source_compliance, SOURCE_TAGS},
+        next_addr,
     };
-    use crate::test_util::components::{run_and_assert_source_compliance, SOURCE_TAGS};
-    use crate::test_util::next_addr;
 
     #[test]
     fn generate_config() {
