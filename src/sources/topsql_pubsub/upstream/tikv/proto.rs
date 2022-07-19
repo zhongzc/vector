@@ -1,3 +1,5 @@
+#![allow(clippy::clone_on_ref_ptr)]
+
 include!(concat!(env!("OUT_DIR"), "/resource_usage_agent.rs"));
 
 use resource_usage_record::RecordOneof;

@@ -1,14 +1,3 @@
-mod parser;
-mod tidb;
-mod tikv;
-
-use std::future::Future;
-
-use tonic::transport::Channel;
-use vector_common::byte_size_of::ByteSizeOf;
-
-use self::parser::UpstreamEventParser;
-
 pub const INSTANCE_TYPE_TIDB: &str = "tidb";
 pub const INSTANCE_TYPE_TIKV: &str = "tikv";
 
@@ -21,6 +10,7 @@ pub const LABEL_TAG_LABEL: &str = "tag_label";
 pub const LABEL_NORMALIZED_SQL: &str = "normalized_sql";
 pub const LABEL_IS_INTERNAL_SQL: &str = "is_internal_sql";
 pub const LABEL_NORMALIZED_PLAN: &str = "normalized_plan";
+pub const LABEL_ENCODED_NORMALIZED_PLAN: &str = "encoded_normalized_plan";
 
 pub const METRIC_NAME_CPU_TIME_MS: &str = "topsql_cpu_time_ms";
 pub const METRIC_NAME_READ_KEYS: &str = "topsql_read_keys";
@@ -36,22 +26,3 @@ pub const METRIC_NAME_INSTANCE: &str = "topsql_instance";
 pub const KV_TAG_LABEL_ROW: &str = "row";
 pub const KV_TAG_LABEL_INDEX: &str = "index";
 pub const KV_TAG_LABEL_UNKNOWN: &str = "unknown";
-
-inventory::collect!(Box<dyn Source>);
-
-#[async_trait::async_trait]
-pub trait Source {
-    type Client;
-    type UpstreamEvent: ByteSizeOf;
-    type UpstreamEventParser: UpstreamEventParser<UpstreamEvent = Self::UpstreamEvent>;
-
-    fn instance_type() -> &'static str;
-
-    fn build_client(channel: Channel) -> Self::Client;
-
-    async fn build_stream(
-        client: Self::Client,
-    ) -> Result<tonic::Response<tonic::codec::Streaming<Self::UpstreamEvent>>, tonic::Status>;
-
-    fn build_parser() -> Self::UpstreamEventParser;
-}

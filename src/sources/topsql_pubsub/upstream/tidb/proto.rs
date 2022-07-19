@@ -1,3 +1,5 @@
+#![allow(clippy::clone_on_ref_ptr)]
+
 include!(concat!(env!("OUT_DIR"), "/tipb.rs"));
 
 use top_sql_sub_response::RespOneof;
