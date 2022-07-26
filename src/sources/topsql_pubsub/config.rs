@@ -1,7 +1,7 @@
+use std::fs::read;
 use std::time::Duration;
 
 use futures::TryFutureExt;
-use http::Uri;
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
 use tonic::transport::{Certificate, ClientTlsConfig, Identity};
@@ -14,7 +14,7 @@ use super::{
 use crate::{
     config::{self, GenerateConfig, Output, SourceConfig, SourceContext, SourceDescription},
     sources,
-    tls::{TlsConfig, TlsSettings},
+    tls::TlsConfig,
 };
 
 #[derive(Debug, Snafu)]
@@ -89,7 +89,7 @@ impl TopSQLPubSubConfig {
         cx: SourceContext,
     ) -> crate::Result<sources::Source> {
         let (instance, endpoint, uri) = self.parse_instance()?;
-        let tls_config = self.make_tls_config(uri.clone(), TlsSettings::from_options(&self.tls)?);
+        let tls_config = self.make_tls_config(&self.tls)?;
         let source = TopSQLSource::<U>::new(
             instance,
             self.instance_type.clone(),
@@ -142,16 +142,22 @@ impl TopSQLPubSubConfig {
         Ok((instance, endpoint, uri))
     }
 
-    fn make_tls_config(&self, uri: Uri, tls_settings: TlsSettings) -> ClientTlsConfig {
-        let host = uri.host().unwrap_or_default();
-        let mut config = ClientTlsConfig::new().domain_name(host);
-        if let Some((cert, key)) = tls_settings.identity_pem() {
-            config = config.identity(Identity::from_pem(cert, key));
+    fn make_tls_config(&self, tls_config: &Option<TlsConfig>) -> crate::Result<ClientTlsConfig> {
+        let mut config = ClientTlsConfig::new();
+        if let Some(tls_config) = tls_config {
+            if let Some(ca_file) = tls_config.ca_file.as_ref() {
+                let ca_content = read(ca_file)?;
+                config = config.ca_certificate(Certificate::from_pem(ca_content));
+            }
+            if let (Some(crt_file), Some(key_file)) =
+                (tls_config.crt_file.as_ref(), tls_config.key_file.as_ref())
+            {
+                let crt_content = read(crt_file)?;
+                let key_content = read(key_file)?;
+                config = config.identity(Identity::from_pem(crt_content, key_content));
+            }
         }
-        for authority in tls_settings.authorities_pem() {
-            config = config.ca_certificate(Certificate::from_pem(authority));
-        }
-        config
+        Ok(config)
     }
 }
 
