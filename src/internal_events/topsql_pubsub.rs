@@ -26,6 +26,26 @@ impl InternalEvent for TopSQLPubSubInitTLSError {
     }
 }
 
+pub struct TopSQLPubSubConnectError;
+
+impl InternalEvent for TopSQLPubSubConnectError {
+    fn emit(self) {
+        error!(
+            message = "Failed to connect to the server.",
+            error_code = "failed_connecting",
+            error_type = error_type::CONNECTION_FAILED,
+            stage = error_stage::RECEIVING,
+        );
+
+        counter!(
+            "component_errors_total", 1,
+            "error_code" => "failed_connecting",
+            "error_type" => error_type::CONNECTION_FAILED,
+            "stage" => error_stage::RECEIVING,
+        );
+    }
+}
+
 pub struct TopSQLPubSubSubscribeError {
     pub error: grpcio::Error,
 }

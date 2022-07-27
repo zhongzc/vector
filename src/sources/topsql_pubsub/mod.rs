@@ -18,8 +18,8 @@ use self::{
 };
 use crate::{
     internal_events::{
-        BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubInitTLSError,
-        TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
+        BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubConnectError,
+        TopSQLPubSubInitTLSError, TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
     },
     shutdown::ShutdownSignal,
     tls::TlsConfig,
@@ -112,6 +112,16 @@ impl<U: Upstream> TopSQLSource<U> {
             }
         };
 
+        tokio::select! {
+            ok = channel.wait_for_connected(Duration::from_secs(3)) => {
+                if !ok {
+                    emit!(TopSQLPubSubConnectError);
+                    return State::RetryDelay;
+                }
+            }
+            _ = &mut self.shutdown => return State::Shutdown,
+        }
+
         let client = U::build_client(channel);
         let mut response_stream = match U::build_stream(&client) {
             Ok(stream) => stream,
@@ -127,7 +137,6 @@ impl<U: Upstream> TopSQLSource<U> {
         loop {
             tokio::select! {
                 _ = &mut self.shutdown => break State::Shutdown,
-                _ = instance_stream.next() => self.handle_instance().await,
                 response = response_stream.next() => {
                     match response {
                         Some(Ok(response)) => self.handle_response(response).await,
@@ -138,6 +147,7 @@ impl<U: Upstream> TopSQLSource<U> {
                         None => break State::RetryNow,
                     }
                 }
+                _ = instance_stream.next() => self.handle_instance().await,
             }
         }
     }
