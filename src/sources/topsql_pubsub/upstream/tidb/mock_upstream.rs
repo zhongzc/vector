@@ -1,41 +1,47 @@
 use std::{net::SocketAddr, pin::Pin};
 
-use futures::Stream;
+use futures::{Stream, SinkExt};
 use futures_util::stream;
-use tonic::{transport::ServerTlsConfig, Request, Response, Status};
+use std::sync::Arc;
+use grpcio::ServerCredentials;
 
-use super::proto::{
-    top_sql_pub_sub_server::{TopSqlPubSub, TopSqlPubSubServer},
-    top_sql_sub_response::RespOneof,
-    PlanMeta, SqlMeta, TopSqlRecord, TopSqlRecordItem, TopSqlSubRequest, TopSqlSubResponse,
-};
-
+#[derive(Clone)]
 pub struct MockTopSqlPubSubServer;
 
 impl MockTopSqlPubSubServer {
-    pub async fn run(address: SocketAddr, tls_config: Option<ServerTlsConfig>) {
-        let svc = TopSqlPubSubServer::new(Self);
-        let mut sb = tonic::transport::Server::builder();
-        if tls_config.is_some() {
-            sb = sb.tls_config(tls_config.unwrap()).unwrap();
-        }
-        sb.add_service(svc).serve(address).await.unwrap();
+    pub fn start(port: u16, credentials: Option<grpcio::ServerCredentials>) -> grpcio::Server {
+        let env = Arc::new(grpcio::Environment::new(2));
+        let channel_args = grpcio::ChannelBuilder::new(env.clone())
+            .max_concurrent_stream(2)
+            .max_receive_message_len(-1)
+            .max_send_message_len(-1)
+            .build_args();
+
+        let mut server_builder = grpcio::ServerBuilder::new(env)
+            .channel_args(channel_args);
+
+        let host = "0.0.0.0";
+        server_builder = match credentials {
+            Some(credentials) => server_builder.bind_with_cred(host, port, credentials),
+            None => server_builder.bind("0.0.0.0", port),
+        };
+
+       let mut server = server_builder
+            .register_service(tipb::create_top_sql_pub_sub(Self))
+            .build()
+            .expect("failed to build mock resource metering publisher server");
+
+        server.start();
+        server
     }
 }
 
-#[tonic::async_trait]
-impl TopSqlPubSub for MockTopSqlPubSubServer {
-    type SubscribeStream =
-        Pin<Box<dyn Stream<Item = Result<TopSqlSubResponse, Status>> + Send + 'static>>;
-
-    async fn subscribe(
-        &self,
-        _: Request<TopSqlSubRequest>,
-    ) -> Result<Response<Self::SubscribeStream>, Status> {
-        let dump_record = TopSqlRecord {
+impl tipb::TopSqlPubSub for MockTopSqlPubSubServer {
+    fn subscribe(&mut self, ctx: grpcio::RpcContext, _: tipb::TopSqlSubRequest, mut sink: grpcio::ServerStreamingSink<tipb::TopSqlSubResponse>) {
+        let dump_record = tipb::TopSqlRecord {
             sql_digest: b"sql_digest".to_vec(),
             plan_digest: b"plan_digest".to_vec(),
-            items: vec![TopSqlRecordItem {
+            items: vec![tipb::TopSqlRecordItem {
                 timestamp_sec: 1655363650,
                 cpu_time_ms: 10,
                 stmt_exec_count: 20,
@@ -44,31 +50,38 @@ impl TopSqlPubSub for MockTopSqlPubSubServer {
                     .collect(),
                 stmt_duration_sum_ns: 30,
                 stmt_duration_count: 20,
-            }],
+                ..Default::default()
+            }].into(),
+            ..Default::default()
         };
 
-        let dump_sql_meta = SqlMeta {
+        let dump_sql_meta = tipb::SqlMeta {
             sql_digest: b"sql_digest".to_vec(),
             normalized_sql: "sql_text".to_owned(),
             is_internal_sql: false,
+            ..Default::default()
         };
 
-        let dump_plan_meta = PlanMeta {
+        let dump_plan_meta = tipb::PlanMeta {
             plan_digest: b"plan_digest".to_vec(),
             normalized_plan: "plan_text".to_owned(),
             encoded_normalized_plan: "encoded_plan".to_owned(),
+            ..Default::default()
         };
 
-        Ok(Response::new(Box::pin(stream::iter(vec![
-            Ok(TopSqlSubResponse {
-                resp_oneof: Some(RespOneof::Record(dump_record)),
-            }),
-            Ok(TopSqlSubResponse {
-                resp_oneof: Some(RespOneof::SqlMeta(dump_sql_meta)),
-            }),
-            Ok(TopSqlSubResponse {
-                resp_oneof: Some(RespOneof::PlanMeta(dump_plan_meta)),
-            }),
-        ])) as Self::SubscribeStream))
+        ctx.spawn(async move {
+            sink.send((tipb::TopSqlSubResponse {
+                resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::Record(dump_record)),
+                ..Default::default()
+            }, grpcio::WriteFlags::default())).await.unwrap();
+            sink.send((tipb::TopSqlSubResponse {
+                resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::SqlMeta(dump_sql_meta)),
+                ..Default::default()
+            }, grpcio::WriteFlags::default())).await.unwrap();
+            sink.send((tipb::TopSqlSubResponse {
+                resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::PlanMeta(dump_plan_meta)),
+                ..Default::default()
+            }, grpcio::WriteFlags::default())).await.unwrap();
+        });
     }
 }

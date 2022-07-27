@@ -6,7 +6,7 @@ pub mod mock_upstream;
 
 use tonic::{transport::Channel, Response, Status, Streaming};
 
-use super::Upstream;
+use super::{Upstream, Upstream2};
 
 pub struct TiKVUpstream;
 
@@ -24,5 +24,21 @@ impl Upstream for TiKVUpstream {
         mut client: Self::Client,
     ) -> Result<Response<Streaming<Self::UpstreamEvent>>, Status> {
         client.subscribe(proto::ResourceMeteringRequest {}).await
+    }
+}
+
+impl Upstream2 for TiKVUpstream {
+    type Client = kvproto::resource_usage_agent_grpc::ResourceMeteringPubSubClient;
+    type UpstreamEvent = kvproto::resource_usage_agent::ResourceUsageRecord;
+    type UpstreamEventParser = parser::ResourceUsageRecordParser2;
+
+    fn build_client(channel: grpcio::Channel) -> Self::Client {
+        Self::Client::new(channel)
+    }
+
+    fn build_stream(
+        client: &Self::Client,
+    ) -> Result<grpcio::ClientSStreamReceiver<Self::UpstreamEvent>, grpcio::Error> {
+        client.subscribe(&kvproto::resource_usage_agent::ResourceMeteringRequest::new())
     }
 }

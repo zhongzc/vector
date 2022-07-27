@@ -6,7 +6,7 @@ pub mod mock_upstream;
 
 use tonic::{transport::Channel, Response, Status, Streaming};
 
-use super::Upstream;
+use super::{Upstream, Upstream2};
 
 pub struct TiDBUpstream;
 
@@ -24,5 +24,21 @@ impl Upstream for TiDBUpstream {
         mut client: Self::Client,
     ) -> Result<Response<Streaming<Self::UpstreamEvent>>, Status> {
         client.subscribe(proto::TopSqlSubRequest {}).await
+    }
+}
+
+impl Upstream2 for TiDBUpstream {
+    type Client = tipb::TopSqlPubSubClient;
+    type UpstreamEvent = tipb::TopSqlSubResponse;
+    type UpstreamEventParser = parser::TopSqlSubResponseParser2;
+
+    fn build_client(channel: grpcio::Channel) -> Self::Client {
+        Self::Client::new(channel)
+    }
+
+    fn build_stream(
+        client: &Self::Client,
+    ) -> Result<grpcio::ClientSStreamReceiver<Self::UpstreamEvent>, grpcio::Error> {
+        client.subscribe(&tipb::TopSqlSubRequest::new() )
     }
 }

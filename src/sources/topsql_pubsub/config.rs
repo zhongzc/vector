@@ -4,11 +4,11 @@ use std::time::Duration;
 use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
-use tonic::transport::{Certificate, ClientTlsConfig, Identity};
+use grpcio::{ChannelCredentials, ChannelCredentialsBuilder};
 
 use super::{
     consts::{INSTANCE_TYPE_TIDB, INSTANCE_TYPE_TIKV},
-    upstream::{tidb::TiDBUpstream, tikv::TiKVUpstream, Upstream},
+    upstream::{tidb::TiDBUpstream, tikv::TiKVUpstream, Upstream, Upstream2},
     TopSQLSource,
 };
 use crate::{
@@ -27,7 +27,7 @@ pub enum ConfigError {
 pub struct TopSQLPubSubConfig {
     pub instance: String,
     pub instance_type: String,
-    pub tls: Option<TlsConfig>,
+    pub tls: TlsConfig,
 
     /// The amount of time, in seconds, to wait between retry attempts after an error.
     #[serde(default = "default_retry_delay")]
@@ -47,7 +47,7 @@ impl GenerateConfig for TopSQLPubSubConfig {
         toml::Value::try_from(Self {
             instance: "127.0.0.1:10080".to_owned(),
             instance_type: "tidb".to_owned(),
-            tls: None,
+            tls: TlsConfig::default(),
             retry_delay_seconds: default_retry_delay(),
         })
         .unwrap()
@@ -84,18 +84,17 @@ impl SourceConfig for TopSQLPubSubConfig {
 }
 
 impl TopSQLPubSubConfig {
-    fn run_source<U: Upstream + 'static>(
+    fn run_source<U: Upstream2 + 'static>(
         &self,
         cx: SourceContext,
     ) -> crate::Result<sources::Source> {
         let (instance, endpoint, uri) = self.parse_instance()?;
-        let tls_config = self.make_tls_config(&self.tls)?;
         let source = TopSQLSource::<U>::new(
             instance,
             self.instance_type.clone(),
             endpoint,
             uri,
-            tls_config,
+            self.tls.clone(),
             cx.shutdown,
             cx.out,
             Duration::from_secs_f64(self.retry_delay_seconds),
@@ -113,7 +112,7 @@ impl TopSQLPubSubConfig {
         let (instance, endpoint) = match (
             self.instance.starts_with("http://"),
             self.instance.starts_with("https://"),
-            self.tls.is_some(),
+            self.tls.ca_file.is_some() || self.tls.crt_file.is_some() || self.tls.key_file.is_some(),
         ) {
             (true, _, _) => {
                 let instance = self.instance.strip_prefix("http://").unwrap().to_owned();
@@ -140,24 +139,6 @@ impl TopSQLPubSubConfig {
             .parse::<http::Uri>()
             .context(sources::UriParseSnafu)?;
         Ok((instance, endpoint, uri))
-    }
-
-    fn make_tls_config(&self, tls_config: &Option<TlsConfig>) -> crate::Result<ClientTlsConfig> {
-        let mut config = ClientTlsConfig::new();
-        if let Some(tls_config) = tls_config {
-            if let Some(ca_file) = tls_config.ca_file.as_ref() {
-                let ca_content = read(ca_file)?;
-                config = config.ca_certificate(Certificate::from_pem(ca_content));
-            }
-            if let (Some(crt_file), Some(key_file)) =
-                (tls_config.crt_file.as_ref(), tls_config.key_file.as_ref())
-            {
-                let crt_content = read(crt_file)?;
-                let key_content = read(key_file)?;
-                config = config.identity(Identity::from_pem(crt_content, key_content));
-            }
-        }
-        Ok(config)
     }
 }
 
