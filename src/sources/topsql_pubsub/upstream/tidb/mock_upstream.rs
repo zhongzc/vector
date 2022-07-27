@@ -1,9 +1,6 @@
-use std::{net::SocketAddr, pin::Pin};
-
-use futures::{Stream, SinkExt};
-use futures_util::stream;
 use std::sync::Arc;
-use grpcio::ServerCredentials;
+
+use futures::SinkExt;
 
 #[derive(Clone)]
 pub struct MockTopSqlPubSubServer;
@@ -17,8 +14,7 @@ impl MockTopSqlPubSubServer {
             .max_send_message_len(-1)
             .build_args();
 
-        let mut server_builder = grpcio::ServerBuilder::new(env)
-            .channel_args(channel_args);
+        let mut server_builder = grpcio::ServerBuilder::new(env).channel_args(channel_args);
 
         let host = "0.0.0.0";
         server_builder = match credentials {
@@ -26,10 +22,10 @@ impl MockTopSqlPubSubServer {
             None => server_builder.bind("0.0.0.0", port),
         };
 
-       let mut server = server_builder
+        let mut server = server_builder
             .register_service(tipb::create_top_sql_pub_sub(Self))
             .build()
-            .expect("failed to build mock resource metering publisher server");
+            .expect("failed to build mock topsql pubsub server");
 
         server.start();
         server
@@ -37,7 +33,12 @@ impl MockTopSqlPubSubServer {
 }
 
 impl tipb::TopSqlPubSub for MockTopSqlPubSubServer {
-    fn subscribe(&mut self, ctx: grpcio::RpcContext, _: tipb::TopSqlSubRequest, mut sink: grpcio::ServerStreamingSink<tipb::TopSqlSubResponse>) {
+    fn subscribe(
+        &mut self,
+        ctx: grpcio::RpcContext,
+        _: tipb::TopSqlSubRequest,
+        mut sink: grpcio::ServerStreamingSink<tipb::TopSqlSubResponse>,
+    ) {
         let dump_record = tipb::TopSqlRecord {
             sql_digest: b"sql_digest".to_vec(),
             plan_digest: b"plan_digest".to_vec(),
@@ -51,7 +52,8 @@ impl tipb::TopSqlPubSub for MockTopSqlPubSubServer {
                 stmt_duration_sum_ns: 30,
                 stmt_duration_count: 20,
                 ..Default::default()
-            }].into(),
+            }]
+            .into(),
             ..Default::default()
         };
 
@@ -70,18 +72,39 @@ impl tipb::TopSqlPubSub for MockTopSqlPubSubServer {
         };
 
         ctx.spawn(async move {
-            sink.send((tipb::TopSqlSubResponse {
-                resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::Record(dump_record)),
-                ..Default::default()
-            }, grpcio::WriteFlags::default())).await.unwrap();
-            sink.send((tipb::TopSqlSubResponse {
-                resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::SqlMeta(dump_sql_meta)),
-                ..Default::default()
-            }, grpcio::WriteFlags::default())).await.unwrap();
-            sink.send((tipb::TopSqlSubResponse {
-                resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::PlanMeta(dump_plan_meta)),
-                ..Default::default()
-            }, grpcio::WriteFlags::default())).await.unwrap();
+            sink.send((
+                tipb::TopSqlSubResponse {
+                    resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::Record(
+                        dump_record,
+                    )),
+                    ..Default::default()
+                },
+                grpcio::WriteFlags::default(),
+            ))
+            .await
+            .unwrap();
+            sink.send((
+                tipb::TopSqlSubResponse {
+                    resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::SqlMeta(
+                        dump_sql_meta,
+                    )),
+                    ..Default::default()
+                },
+                grpcio::WriteFlags::default(),
+            ))
+            .await
+            .unwrap();
+            sink.send((
+                tipb::TopSqlSubResponse {
+                    resp_oneof: Some(tipb::TopSQLSubResponse_oneof_resp_oneof::PlanMeta(
+                        dump_plan_meta,
+                    )),
+                    ..Default::default()
+                },
+                grpcio::WriteFlags::default(),
+            ))
+            .await
+            .unwrap();
         });
     }
 }

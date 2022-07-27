@@ -1,14 +1,12 @@
-use std::fs::read;
 use std::time::Duration;
 
 use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
-use grpcio::{ChannelCredentials, ChannelCredentialsBuilder};
 
 use super::{
     consts::{INSTANCE_TYPE_TIDB, INSTANCE_TYPE_TIKV},
-    upstream::{tidb::TiDBUpstream, tikv::TiKVUpstream, Upstream, Upstream2},
+    upstream::{tidb::TiDBUpstream, tikv::TiKVUpstream, Upstream},
     TopSQLSource,
 };
 use crate::{
@@ -84,15 +82,14 @@ impl SourceConfig for TopSQLPubSubConfig {
 }
 
 impl TopSQLPubSubConfig {
-    fn run_source<U: Upstream2 + 'static>(
+    fn run_source<U: Upstream + 'static>(
         &self,
         cx: SourceContext,
     ) -> crate::Result<sources::Source> {
-        let (instance, endpoint, uri) = self.parse_instance()?;
+        let (instance, uri) = self.parse_instance()?;
         let source = TopSQLSource::<U>::new(
             instance,
             self.instance_type.clone(),
-            endpoint,
             uri,
             self.tls.clone(),
             cx.shutdown,
@@ -105,14 +102,15 @@ impl TopSQLPubSubConfig {
         Ok(Box::pin(source))
     }
 
-    // return instance, endpoint, and uri
-    fn parse_instance(&self) -> crate::Result<(String, String, http::Uri)> {
+    // return instance and uri
+    fn parse_instance(&self) -> crate::Result<(String, http::Uri)> {
         // expect no schema in instance
-        // expect schema in endpoint
         let (instance, endpoint) = match (
             self.instance.starts_with("http://"),
             self.instance.starts_with("https://"),
-            self.tls.ca_file.is_some() || self.tls.crt_file.is_some() || self.tls.key_file.is_some(),
+            self.tls.ca_file.is_some()
+                || self.tls.crt_file.is_some()
+                || self.tls.key_file.is_some(),
         ) {
             (true, _, _) => {
                 let instance = self.instance.strip_prefix("http://").unwrap().to_owned();
@@ -138,7 +136,7 @@ impl TopSQLPubSubConfig {
         let uri = endpoint
             .parse::<http::Uri>()
             .context(sources::UriParseSnafu)?;
-        Ok((instance, endpoint, uri))
+        Ok((instance, uri))
     }
 }
 

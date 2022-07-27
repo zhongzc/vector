@@ -210,10 +210,7 @@ impl HttpSink for VMImportSink {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    use std::collections::BTreeMap;
-    use std::future::ready;
+    use std::{collections::BTreeMap, future::ready};
 
     use chrono::Utc;
     use futures_util::{stream, TryFutureExt};
@@ -225,6 +222,7 @@ mod tests {
     use lookup::path;
     use vector_core::{event::LogEvent, Error};
 
+    use super::*;
     use crate::{
         config::SinkContext,
         test_util::{

@@ -3,31 +3,28 @@ mod consts;
 mod upstream;
 mod utils;
 
-use std::{marker::PhantomData, time::Duration};
+use std::{fs::read, marker::PhantomData, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use http::uri::InvalidUri;
-use snafu::{Error, ResultExt, Snafu};
+use protobuf::Message;
+use snafu::Snafu;
 use tokio_stream::wrappers::IntervalStream;
 use vector_core::ByteSizeOf;
-use protobuf::Message;
 
 use self::{
-    upstream::{parser::UpstreamEventParser, Upstream, Upstream2},
+    upstream::{parser::UpstreamEventParser, Upstream},
     utils::instance_event,
 };
 use crate::{
     internal_events::{
-        BytesReceived, EventsReceived, StreamClosedError,
-        TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError, TopSQLPubSubInitTLSError,
+        BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubInitTLSError,
+        TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
     },
     shutdown::ShutdownSignal,
+    tls::TlsConfig,
     SourceSender,
 };
-use grpcio::{ChannelBuilder, Environment, ChannelCredentials, Channel, ChannelCredentialsBuilder};
-use std::sync::Arc;
-use crate::tls::TlsConfig;
-use std::fs::read;
 
 #[derive(Debug, Snafu)]
 pub enum EndpointError {
@@ -37,13 +34,12 @@ pub enum EndpointError {
     EndpointTls { source: tonic::transport::Error },
 }
 
-pub struct TopSQLSource<U: Upstream2> {
+pub struct TopSQLSource<U: Upstream> {
     instance: String,
     instance_type: String,
-    endpoint: String,
     uri: http::Uri,
     tls: TlsConfig,
-    env: Arc<Environment>,
+    env: Arc<grpcio::Environment>,
     shutdown: ShutdownSignal,
     out: SourceSender,
     retry_delay: Duration,
@@ -56,12 +52,11 @@ enum State {
     Shutdown,
 }
 
-impl<U: Upstream2> TopSQLSource<U> {
+impl<U: Upstream> TopSQLSource<U> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         instance: String,
         instance_type: String,
-        endpoint: String,
         uri: http::Uri,
         tls: TlsConfig,
         shutdown: ShutdownSignal,
@@ -71,13 +66,12 @@ impl<U: Upstream2> TopSQLSource<U> {
         Self {
             instance,
             instance_type,
-            endpoint,
             uri,
             tls,
             shutdown,
             out,
             retry_delay,
-            env: Arc::new(Environment::new(2)),
+            env: Arc::new(grpcio::Environment::new(2)),
             _p: PhantomData::default(),
         }
     }
@@ -103,26 +97,23 @@ impl<U: Upstream2> TopSQLSource<U> {
 
     async fn run_once(&mut self) -> State {
         let channel = {
-            let cb = ChannelBuilder::new(self.env.clone());
-            cb.connect(&self.instance)
-            // if self.uri.scheme() == Some(&http::uri::Scheme::HTTPS) {
-            //     println!("https {:?}", &self.instance);
-            //     let credentials = match self.make_credentials(&self.tls) {
-            //         Ok(credentials) => credentials,
-            //         Err(error) => {
-            //             emit!(TopSQLPubSubInitTLSError { error });
-            //             return State::Shutdown;
-            //         }
-            //     };
-            //     cb.secure_connect(&self.instance, credentials)
-            // } else {
-            //     cb.connect(&self.instance)
-            // }
+            let cb = grpcio::ChannelBuilder::new(Arc::clone(&self.env));
+            if self.uri.scheme() == Some(&http::uri::Scheme::HTTPS) {
+                let credentials = match self.make_credentials(&self.tls) {
+                    Ok(credentials) => credentials,
+                    Err(error) => {
+                        emit!(TopSQLPubSubInitTLSError { error });
+                        return State::Shutdown;
+                    }
+                };
+                cb.secure_connect(&self.instance, credentials)
+            } else {
+                cb.connect(&self.instance)
+            }
         };
 
-        println!("456");
         let client = U::build_client(channel);
-        let mut response_stream = match U::build_stream(&client)  {
+        let mut response_stream = match U::build_stream(&client) {
             Ok(stream) => stream,
             Err(error) => {
                 emit!(TopSQLPubSubSubscribeError { error });
@@ -133,13 +124,11 @@ impl<U: Upstream2> TopSQLSource<U> {
         let mut instance_stream =
             IntervalStream::new(tokio::time::interval(Duration::from_secs(30)));
 
-        println!("789");
         loop {
             tokio::select! {
                 _ = &mut self.shutdown => break State::Shutdown,
                 _ = instance_stream.next() => self.handle_instance().await,
                 response = response_stream.next() => {
-                    println!("abc");
                     match response {
                         Some(Ok(response)) => self.handle_response(response).await,
                         Some(Err(error)) => {
@@ -177,14 +166,17 @@ impl<U: Upstream2> TopSQLSource<U> {
         }
     }
 
-    fn make_credentials(&self, tls_config: &TlsConfig) -> std::io::Result<ChannelCredentials> {
-        let mut config = ChannelCredentialsBuilder::new();
+    fn make_credentials(
+        &self,
+        tls_config: &TlsConfig,
+    ) -> std::io::Result<grpcio::ChannelCredentials> {
+        let mut config = grpcio::ChannelCredentialsBuilder::new();
         if let Some(ca_file) = tls_config.ca_file.as_ref() {
             let ca_content = read(ca_file)?;
             config = config.root_cert(ca_content);
         }
         if let (Some(crt_file), Some(key_file)) =
-        (tls_config.crt_file.as_ref(), tls_config.key_file.as_ref())
+            (tls_config.crt_file.as_ref(), tls_config.key_file.as_ref())
         {
             let crt_content = read(crt_file)?;
             let key_content = read(key_file)?;
@@ -196,11 +188,7 @@ impl<U: Upstream2> TopSQLSource<U> {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::Write, net::SocketAddr};
-
-    use rcgen::{BasicConstraints, Certificate, CertificateParams, IsCa};
-    use tempfile::NamedTempFile;
-    use tonic::transport::{Identity, ServerTlsConfig};
+    use std::net::SocketAddr;
 
     use self::{
         config::{default_retry_delay, TopSQLPubSubConfig},
@@ -216,7 +204,7 @@ mod tests {
             components::{run_and_assert_source_compliance, SOURCE_TAGS},
             next_addr,
         },
-        tls::TlsConfig,
+        tls::{TlsConfig, TEST_PEM_CA_PATH, TEST_PEM_CRT_PATH, TEST_PEM_KEY_PATH},
     };
 
     #[tokio::test]
@@ -235,25 +223,23 @@ mod tests {
     #[tokio::test]
     async fn test_topsql_scrape_tidb_tls() {
         let address = next_addr();
-        let (ca_file, crt_file, key_file, ca_crt,  server_crt, server_key) = generate_tls();
         let config = TopSQLPubSubConfig {
             instance: format!("localhost:{}", address.port()),
             instance_type: INSTANCE_TYPE_TIDB.to_owned(),
-            tls: TlsConfig {
-                ca_file: Some(ca_file.path().to_path_buf()),
-                crt_file: Some(crt_file.path().to_path_buf()),
-                key_file: Some(key_file.path().to_path_buf()),
-                ..Default::default()
-            },
+            tls: TlsConfig::test_config(),
             retry_delay_seconds: default_retry_delay(),
         };
+
+        let ca = read(TEST_PEM_CA_PATH).unwrap();
+        let crt = read(TEST_PEM_CRT_PATH).unwrap();
+        let key = read(TEST_PEM_KEY_PATH).unwrap();
 
         check_topsql_scrape_tidb(
             address,
             config,
             Some(grpcio::ServerCredentialsBuilder::new()
-                // .root_cert(ca_crt.into_bytes(), grpcio::CertificateRequestType::DontRequestClientCertificate)
-                .add_cert(server_crt.into_bytes(), server_key.into_bytes())
+                .root_cert(ca, grpcio::CertificateRequestType::RequestAndRequireClientCertificateButDontVerify)
+                .add_cert(crt, key)
                 .build())
             )
         .await;
@@ -275,23 +261,24 @@ mod tests {
     #[tokio::test]
     async fn test_topsql_scrape_tikv_tls() {
         let address = next_addr();
-        let (ca_file, crt_file, key_file, ca_crt,  server_crt, server_key) = generate_tls();
         let config = TopSQLPubSubConfig {
             instance: format!("localhost:{}", address.port()),
             instance_type: INSTANCE_TYPE_TIKV.to_owned(),
-            tls: TlsConfig {
-                ca_file: Some(ca_file.path().to_path_buf()),
-                crt_file: Some(crt_file.path().to_path_buf()),
-                key_file: Some(key_file.path().to_path_buf()),
-                ..Default::default()
-            },
+            tls: TlsConfig::test_config(),
             retry_delay_seconds: default_retry_delay(),
         };
+
+        let ca = read(TEST_PEM_CA_PATH).unwrap();
+        let crt = read(TEST_PEM_CRT_PATH).unwrap();
+        let key = read(TEST_PEM_KEY_PATH).unwrap();
 
         check_topsql_scrape_tikv(
             address,
             config,
-            Some(ServerTlsConfig::new().identity(Identity::from_pem(server_crt, server_key)).client_ca_root(tonic::transport::Certificate::from_pem(ca_crt))),
+            Some(grpcio::ServerCredentialsBuilder::new()
+                .root_cert(ca, grpcio::CertificateRequestType::RequestAndRequireClientCertificateButDontVerify)
+                .add_cert(crt, key)
+                .build())
         )
         .await;
     }
@@ -304,7 +291,7 @@ mod tests {
         let mut server = MockTopSqlPubSubServer::start(address.port(), credentials);
 
         let events =
-            run_and_assert_source_compliance(config, Duration::from_secs(2), &SOURCE_TAGS).await;
+            run_and_assert_source_compliance(config, Duration::from_secs(3), &SOURCE_TAGS).await;
         assert!(!events.is_empty());
         server.shutdown().await.unwrap();
     }
@@ -312,39 +299,13 @@ mod tests {
     async fn check_topsql_scrape_tikv(
         address: SocketAddr,
         config: TopSQLPubSubConfig,
-        tls_config: Option<ServerTlsConfig>,
+        credentials: Option<grpcio::ServerCredentials>,
     ) {
-        tokio::spawn(MockResourceMeteringPubSubServer::run(address, tls_config));
-
-        // wait for server to start
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let mut server = MockResourceMeteringPubSubServer::start(address.port(), credentials);
 
         let events =
-            run_and_assert_source_compliance(config, Duration::from_secs(2), &SOURCE_TAGS).await;
+            run_and_assert_source_compliance(config, Duration::from_secs(3), &SOURCE_TAGS).await;
         assert!(!events.is_empty());
-    }
-
-    // generate_tls returns
-    // - file `ca_file`
-    // - signed-by-ca cert in String `server_crt` and `server_key`
-    fn generate_tls() -> (NamedTempFile, NamedTempFile, NamedTempFile, String, String, String) {
-        let mut ca_params = CertificateParams::default();
-        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        let ca_cert = Certificate::from_params(ca_params).unwrap();
-
-        let server_params = CertificateParams::new(vec!["localhost".to_owned()]);
-        let server_cert = Certificate::from_params(server_params).unwrap();
-        let server_crt = server_cert.serialize_pem_with_signer(&ca_cert).unwrap();
-        let server_key = server_cert.serialize_private_key_pem();
-
-        let ca_crt =  ca_cert.serialize_pem().unwrap();
-
-        let mut ca_file = NamedTempFile::new().unwrap();
-        write!(ca_file, "{}", ca_crt).unwrap();
-        let mut crt_file = NamedTempFile::new().unwrap();
-        write!(crt_file, "{}", server_crt).unwrap();
-        let mut key_file = NamedTempFile::new().unwrap();
-        write!(key_file, "{}", server_key).unwrap();
-        (ca_file, crt_file, key_file, ca_crt, server_crt, server_key)
+        server.shutdown().await.unwrap();
     }
 }

@@ -347,7 +347,6 @@ tempfile = "3.3.0"
 tokio = { version = "1.18.2", features = ["test-util"] }
 tokio-test = "0.4.2"
 tower-test = "0.4.0"
-rcgen = "0.9.2"
 value = { path = "lib/value", features = ["test"] }
 vector_core = { path = "lib/vector-core", default-features = false, features = ["vrl", "test"] }
 wiremock = "0.5.13"
