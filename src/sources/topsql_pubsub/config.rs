@@ -56,6 +56,7 @@ impl GenerateConfig for TopSQLPubSubConfig {
 #[typetag::serde(name = "topsql_pubsub")]
 impl SourceConfig for TopSQLPubSubConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
+        self.validate_tls()?;
         match self.instance_type.as_str() {
             INSTANCE_TYPE_TIDB => self.run_source::<TiDBUpstream>(cx),
             INSTANCE_TYPE_TIKV => self.run_source::<TiKVUpstream>(cx),
@@ -137,6 +138,36 @@ impl TopSQLPubSubConfig {
             .parse::<http::Uri>()
             .context(sources::UriParseSnafu)?;
         Ok((instance, uri))
+    }
+
+    fn validate_tls(&self) -> crate::Result<()> {
+        Self::check_key_file("ca key", &self.tls.ca_file)?;
+        Self::check_key_file("cert key", &self.tls.crt_file)?;
+        Self::check_key_file("private key", &self.tls.key_file)?;
+        if (self.tls.ca_file.is_some()
+            || self.tls.crt_file.is_some()
+            || self.tls.key_file.is_some())
+            && (self.tls.ca_file.is_none()
+                || self.tls.crt_file.is_none()
+                || self.tls.key_file.is_none())
+        {
+            return Err("ca, cert and private key should be all configured.".into());
+        }
+
+        Ok(())
+    }
+
+    fn check_key_file(
+        tag: &str,
+        path: &Option<std::path::PathBuf>,
+    ) -> crate::Result<Option<std::fs::File>> {
+        if path.is_none() {
+            return Ok(None);
+        }
+        match std::fs::File::open(path.as_ref().unwrap()) {
+            Err(e) => Err(format!("failed to open {:?} to load {}: {:?}", path, tag, e).into()),
+            Ok(f) => Ok(Some(f)),
+        }
     }
 }
 

@@ -8,7 +8,7 @@ pub struct MockTopSqlPubSubServer;
 impl MockTopSqlPubSubServer {
     pub fn start(port: u16, credentials: Option<grpcio::ServerCredentials>) -> grpcio::Server {
         let env = Arc::new(grpcio::Environment::new(2));
-        let channel_args = grpcio::ChannelBuilder::new(env.clone())
+        let channel_args = grpcio::ChannelBuilder::new(Arc::clone(&env))
             .max_concurrent_stream(2)
             .max_receive_message_len(-1)
             .max_send_message_len(-1)

@@ -3,36 +3,26 @@ mod consts;
 mod upstream;
 mod utils;
 
-use std::{fs::read, marker::PhantomData, sync::Arc, time::Duration};
+use std::{marker::PhantomData, sync::Arc, time::Duration};
 
 use futures::StreamExt;
-use http::uri::InvalidUri;
 use protobuf::Message;
-use snafu::Snafu;
 use tokio_stream::wrappers::IntervalStream;
 use vector_core::ByteSizeOf;
 
 use self::{
     upstream::{parser::UpstreamEventParser, Upstream},
-    utils::instance_event,
+    utils::{instance_event, notify_pair},
 };
 use crate::{
     internal_events::{
         BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubConnectError,
-        TopSQLPubSubInitTLSError, TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
+        TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
     },
     shutdown::ShutdownSignal,
     tls::TlsConfig,
     SourceSender,
 };
-
-#[derive(Debug, Snafu)]
-pub enum EndpointError {
-    #[snafu(display("Could not create endpoint: {}", source))]
-    Endpoint { source: InvalidUri },
-    #[snafu(display("Could not set up endpoint TLS settings: {}", source))]
-    EndpointTls { source: tonic::transport::Error },
-}
 
 pub struct TopSQLSource<U: Upstream> {
     instance: String,
@@ -96,31 +86,20 @@ impl<U: Upstream> TopSQLSource<U> {
     }
 
     async fn run_once(&mut self) -> State {
-        let channel = {
-            let cb = grpcio::ChannelBuilder::new(Arc::clone(&self.env));
-            if self.uri.scheme() == Some(&http::uri::Scheme::HTTPS) {
-                let credentials = match self.make_credentials(&self.tls) {
-                    Ok(credentials) => credentials,
-                    Err(error) => {
-                        emit!(TopSQLPubSubInitTLSError { error });
-                        return State::Shutdown;
-                    }
-                };
-                cb.secure_connect(&self.instance, credentials)
-            } else {
-                cb.connect(&self.instance)
-            }
-        };
+        let (_notifier, notified) = notify_pair();
+        let channel_fut =
+            U::build_channel(&self.instance, Arc::clone(&self.env), &self.tls, notified);
 
-        tokio::select! {
-            ok = channel.wait_for_connected(Duration::from_secs(3)) => {
-                if !ok {
-                    emit!(TopSQLPubSubConnectError);
+        let channel = tokio::select! {
+            channel = channel_fut => match channel {
+                Ok(channel) => channel,
+                Err(error) => {
+                    emit!(TopSQLPubSubConnectError { error });
                     return State::RetryDelay;
                 }
-            }
+            },
             _ = &mut self.shutdown => return State::Shutdown,
-        }
+        };
 
         let client = U::build_client(channel);
         let mut response_stream = match U::build_stream(&client) {
@@ -175,30 +154,11 @@ impl<U: Upstream> TopSQLSource<U> {
             emit!(StreamClosedError { error, count: 1 })
         }
     }
-
-    fn make_credentials(
-        &self,
-        tls_config: &TlsConfig,
-    ) -> std::io::Result<grpcio::ChannelCredentials> {
-        let mut config = grpcio::ChannelCredentialsBuilder::new();
-        if let Some(ca_file) = tls_config.ca_file.as_ref() {
-            let ca_content = read(ca_file)?;
-            config = config.root_cert(ca_content);
-        }
-        if let (Some(crt_file), Some(key_file)) =
-            (tls_config.crt_file.as_ref(), tls_config.key_file.as_ref())
-        {
-            let crt_content = read(crt_file)?;
-            let key_content = read(key_file)?;
-            config = config.cert(crt_content, key_content);
-        }
-        Ok(config.build())
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
+    use std::{fs::read, net::SocketAddr};
 
     use self::{
         config::{default_retry_delay, TopSQLPubSubConfig},
