@@ -7,3 +7,7 @@ yum makecache
 yum install -y centos-release-scl
 yum install -y llvm-toolset-7
 yum install -y perl-core
+
+# we need GCC >= 4.9 for grpcio
+yum install -y devtoolset-7
+echo 'source /opt/rh/devtoolset-7/enable' >> /root/.bashrc
