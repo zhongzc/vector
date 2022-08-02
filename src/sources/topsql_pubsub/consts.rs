@@ -18,7 +18,6 @@ pub const METRIC_NAME_WRITE_KEYS: &str = "topsql_write_keys";
 pub const METRIC_NAME_STMT_EXEC_COUNT: &str = "topsql_stmt_exec_count";
 pub const METRIC_NAME_STMT_DURATION_SUM_NS: &str = "topsql_stmt_duration_sum_ns";
 pub const METRIC_NAME_STMT_DURATION_COUNT: &str = "topsql_stmt_duration_count";
-pub const METRIC_NAME_STMT_KV_EXEC_COUNT: &str = "topsql_stmt_kv_exec_count";
 pub const METRIC_NAME_SQL_META: &str = "topsql_sql_meta";
 pub const METRIC_NAME_PLAN_META: &str = "topsql_plan_meta";
 pub const METRIC_NAME_INSTANCE: &str = "topsql_instance";

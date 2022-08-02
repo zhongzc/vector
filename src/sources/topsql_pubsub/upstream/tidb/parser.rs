@@ -11,7 +11,6 @@ use crate::{
             LABEL_PLAN_DIGEST, LABEL_SQL_DIGEST, METRIC_NAME_CPU_TIME_MS, METRIC_NAME_PLAN_META,
             METRIC_NAME_SQL_META, METRIC_NAME_STMT_DURATION_COUNT,
             METRIC_NAME_STMT_DURATION_SUM_NS, METRIC_NAME_STMT_EXEC_COUNT,
-            METRIC_NAME_STMT_KV_EXEC_COUNT,
         },
         upstream::parser::{Buf, UpstreamEventParser},
         utils::make_metric_like_log_event,
@@ -78,7 +77,7 @@ impl TopSqlSubResponseParser {
         );
 
         // stmt_kv_exec_count
-        buf.label_name(METRIC_NAME_STMT_KV_EXEC_COUNT)
+        buf.label_name(METRIC_NAME_STMT_EXEC_COUNT)
             .instance_type(INSTANCE_TYPE_TIKV);
 
         let tikv_instances = record
