@@ -138,7 +138,7 @@ impl TlsSettings {
         })
     }
 
-    #[cfg(any(feature = "sources-gcp_pubsub", feature = "sources-topsql_pubsub"))]
+    #[cfg(feature = "sources-gcp_pubsub")]
     pub fn identity_pem(&self) -> Option<(Vec<u8>, Vec<u8>)> {
         self.identity().map(|identity| {
             let mut cert = identity.cert.to_pem().expect("Invalid stored identity");
@@ -159,7 +159,7 @@ impl TlsSettings {
         })
     }
 
-    #[cfg(any(feature = "sources-gcp_pubsub", feature = "sources-topsql_pubsub"))]
+    #[cfg(feature = "sources-gcp_pubsub")]
     pub fn authorities_pem(&self) -> impl Iterator<Item = Vec<u8>> + '_ {
         self.authorities.iter().map(|authority| {
             authority
