@@ -183,7 +183,7 @@ mod tests {
         let config = TopSQLPubSubConfig {
             instance: address.to_string(),
             instance_type: INSTANCE_TYPE_TIDB.to_owned(),
-            tls: TlsConfig::default(),
+            tls: Some(TlsConfig::default()),
             retry_delay_seconds: default_retry_delay(),
         };
 
@@ -223,7 +223,7 @@ mod tests {
         let config = TopSQLPubSubConfig {
             instance: address.to_string(),
             instance_type: INSTANCE_TYPE_TIKV.to_owned(),
-            tls: TlsConfig::default(),
+            tls: Some(TlsConfig::default()),
             retry_delay_seconds: default_retry_delay(),
         };
 
@@ -236,7 +236,7 @@ mod tests {
         let config = TopSQLPubSubConfig {
             instance: format!("localhost:{}", address.port()),
             instance_type: INSTANCE_TYPE_TIKV.to_owned(),
-            tls: TlsConfig::test_config(),
+            tls: Some(TlsConfig::test_config()),
             retry_delay_seconds: default_retry_delay(),
         };
 

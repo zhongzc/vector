@@ -26,7 +26,7 @@ pub enum ConfigError {
 pub struct TopSQLPubSubConfig {
     pub instance: String,
     pub instance_type: String,
-    pub tls: TlsConfig,
+    pub tls: Option<TlsConfig>,
 
     /// The amount of time, in seconds, to wait between retry attempts after an error.
     #[serde(default = "default_retry_delay")]
@@ -46,7 +46,7 @@ impl GenerateConfig for TopSQLPubSubConfig {
         toml::Value::try_from(Self {
             instance: "127.0.0.1:10080".to_owned(),
             instance_type: "tidb".to_owned(),
-            tls: TlsConfig::default(),
+            tls: None,
             retry_delay_seconds: default_retry_delay(),
         })
         .unwrap()
@@ -93,7 +93,7 @@ impl TopSQLPubSubConfig {
             instance,
             self.instance_type.clone(),
             uri,
-            self.tls.clone(),
+            self.tls.clone().unwrap_or_default(),
             cx.shutdown,
             cx.out,
             Duration::from_secs_f64(self.retry_delay_seconds),
@@ -110,9 +110,7 @@ impl TopSQLPubSubConfig {
         let (instance, endpoint) = match (
             self.instance.starts_with("http://"),
             self.instance.starts_with("https://"),
-            self.tls.ca_file.is_some()
-                || self.tls.crt_file.is_some()
-                || self.tls.key_file.is_some(),
+            self.tls.is_some(),
         ) {
             (true, _, _) => {
                 let instance = self.instance.strip_prefix("http://").unwrap().to_owned();
@@ -142,18 +140,20 @@ impl TopSQLPubSubConfig {
     }
 
     fn validate_tls(&self) -> crate::Result<()> {
-        Self::check_key_file("ca key", &self.tls.ca_file)?;
-        Self::check_key_file("cert key", &self.tls.crt_file)?;
-        Self::check_key_file("private key", &self.tls.key_file)?;
-        if (self.tls.ca_file.is_some()
-            || self.tls.crt_file.is_some()
-            || self.tls.key_file.is_some())
-            && (self.tls.ca_file.is_none()
-                || self.tls.crt_file.is_none()
-                || self.tls.key_file.is_none())
+        if self.tls.is_none() {
+            return Ok(());
+        }
+
+        let tls = self.tls.as_ref().unwrap();
+        if (tls.ca_file.is_some() || tls.crt_file.is_some() || tls.key_file.is_some())
+            && (tls.ca_file.is_none() || tls.crt_file.is_none() || tls.key_file.is_none())
         {
             return Err("ca, cert and private key should be all configured.".into());
         }
+
+        Self::check_key_file("ca key", &tls.ca_file)?;
+        Self::check_key_file("cert key", &tls.crt_file)?;
+        Self::check_key_file("private key", &tls.key_file)?;
 
         Ok(())
     }
