@@ -2,6 +2,9 @@ use std::collections::BTreeSet;
 
 use chrono::Utc;
 
+use super::proto::{
+    top_sql_sub_response::RespOneof, PlanMeta, SqlMeta, TopSqlRecord, TopSqlSubResponse,
+};
 use crate::{
     event::LogEvent,
     sources::topsql_pubsub::{
@@ -20,26 +23,20 @@ use crate::{
 pub struct TopSqlSubResponseParser;
 
 impl UpstreamEventParser for TopSqlSubResponseParser {
-    type UpstreamEvent = tipb::TopSqlSubResponse;
+    type UpstreamEvent = TopSqlSubResponse;
 
     fn parse(response: Self::UpstreamEvent, instance: String) -> Vec<LogEvent> {
         match response.resp_oneof {
-            Some(tipb::TopSQLSubResponse_oneof_resp_oneof::Record(record)) => {
-                Self::parse_tidb_record(record, instance)
-            }
-            Some(tipb::TopSQLSubResponse_oneof_resp_oneof::SqlMeta(sql_meta)) => {
-                Self::parse_tidb_sql_meta(sql_meta)
-            }
-            Some(tipb::TopSQLSubResponse_oneof_resp_oneof::PlanMeta(plan_meta)) => {
-                Self::parse_tidb_plan_meta(plan_meta)
-            }
+            Some(RespOneof::Record(record)) => Self::parse_tidb_record(record, instance),
+            Some(RespOneof::SqlMeta(sql_meta)) => Self::parse_tidb_sql_meta(sql_meta),
+            Some(RespOneof::PlanMeta(plan_meta)) => Self::parse_tidb_plan_meta(plan_meta),
             None => vec![],
         }
     }
 }
 
 impl TopSqlSubResponseParser {
-    fn parse_tidb_record(record: tipb::TopSqlRecord, instance: String) -> Vec<LogEvent> {
+    fn parse_tidb_record(record: TopSqlRecord, instance: String) -> Vec<LogEvent> {
         let mut logs = vec![];
 
         let mut buf = Buf::new();
@@ -108,7 +105,7 @@ impl TopSqlSubResponseParser {
         logs
     }
 
-    fn parse_tidb_sql_meta(sql_meta: tipb::SqlMeta) -> Vec<LogEvent> {
+    fn parse_tidb_sql_meta(sql_meta: SqlMeta) -> Vec<LogEvent> {
         vec![make_metric_like_log_event(
             &[
                 (LABEL_NAME, METRIC_NAME_SQL_META.to_owned()),
@@ -121,7 +118,7 @@ impl TopSqlSubResponseParser {
         )]
     }
 
-    fn parse_tidb_plan_meta(plan_meta: tipb::PlanMeta) -> Vec<LogEvent> {
+    fn parse_tidb_plan_meta(plan_meta: PlanMeta) -> Vec<LogEvent> {
         vec![make_metric_like_log_event(
             &[
                 (LABEL_NAME, METRIC_NAME_PLAN_META.to_owned()),

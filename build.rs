@@ -112,6 +112,11 @@ fn main() {
         println!("cargo:rerun-if-changed=proto/opentelemetry/proto/logs/v1/logs.proto");
         println!("cargo:rerun-if-changed=proto/opentelemetry/proto/resource/v1/resource.proto");
 
+        // Top SQL
+        println!("cargo:rerun-if-changed=proto/topsql/tidb.proto");
+        println!("cargo:rerun-if-changed=proto/topsql/tikv.proto");
+        println!("cargo:rerun-if-changed=proto/topsql/resource_tag.proto");
+
         let mut prost_build = prost_build::Config::new();
         prost_build.btree_map(&["."]);
 
@@ -127,6 +132,10 @@ fn main() {
                     "proto/google/pubsub/v1/pubsub.proto",
                     "proto/vector.proto",
                     "proto/opentelemetry/proto/collector/logs/v1/logs_service.proto",
+                    // Top SQL
+                    "proto/topsql/tidb.proto",
+                    "proto/topsql/tikv.proto",
+                    "proto/topsql/resource_tag.proto",
                 ],
                 &["proto/", "lib/vector-core/proto/"],
             )

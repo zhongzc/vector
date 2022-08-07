@@ -1,71 +1,144 @@
+#![allow(warnings)]
+
 mod parser;
+mod proto;
 
 #[cfg(test)]
 pub mod mock_upstream;
 
-use std::{fs::read, future::Future, sync::Arc, time::Duration};
+use std::{future::Future, pin::Pin};
+
+use tokio::{
+    io::AsyncWriteExt,
+    net::{TcpListener, TcpStream},
+};
+use tokio_openssl::SslStream;
+use tonic::{
+    transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity},
+    Status, Streaming,
+};
+use tracing::Instrument;
 
 use super::Upstream;
-use crate::tls::TlsConfig;
+use crate::{
+    internal_events::TopSQLPubSubProxyConnectError,
+    tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
+};
 
 pub struct TiKVUpstream;
 
 #[async_trait::async_trait]
 impl Upstream for TiKVUpstream {
-    type Client = kvproto::resource_usage_agent_grpc::ResourceMeteringPubSubClient;
-    type UpstreamEvent = kvproto::resource_usage_agent::ResourceUsageRecord;
+    type Client = proto::resource_metering_pub_sub_client::ResourceMeteringPubSubClient<Channel>;
+    type UpstreamEvent = proto::ResourceUsageRecord;
     type UpstreamEventParser = parser::ResourceUsageRecordParser;
 
-    async fn build_channel(
-        address: &str,
-        env: Arc<grpcio::Environment>,
+    async fn build_endpoint(
+        address: String,
         tls_config: &TlsConfig,
-        _: impl Future<Output = ()> + Send + 'static,
-    ) -> crate::Result<grpcio::Channel> {
-        let channel = {
-            let cb = grpcio::ChannelBuilder::new(env);
-            if tls_config.ca_file.is_some()
-                || tls_config.crt_file.is_some()
-                || tls_config.key_file.is_some()
-            {
-                let credentials = make_credentials(tls_config)?;
-                cb.secure_connect(address, credentials)
-            } else {
-                cb.connect(address)
-            }
+        shutdown_notify: impl Future<Output = ()> + Send + 'static,
+    ) -> crate::Result<Endpoint> {
+        let tls_is_set = tls_config.ca_file.is_some()
+            || tls_config.crt_file.is_some()
+            || tls_config.key_file.is_some();
+
+        let endpoint = if !tls_is_set {
+            Channel::from_shared(address.clone())?
+        } else {
+            // do proxy
+            let port = proxy_tls(tls_config, &address, shutdown_notify).await?;
+            Channel::from_shared(format!("http://127.0.0.1:{}", port))?
         };
 
-        let ok = channel.wait_for_connected(Duration::from_secs(2)).await;
-        if !ok {
-            return Err(format!("failed to connect to {:?}", address).into());
-        }
-
-        Ok(channel)
+        Ok(endpoint)
     }
 
-    fn build_client(channel: grpcio::Channel) -> Self::Client {
+    fn build_client(channel: Channel) -> Self::Client {
         Self::Client::new(channel)
     }
 
-    fn build_stream(
-        client: &Self::Client,
-    ) -> Result<grpcio::ClientSStreamReceiver<Self::UpstreamEvent>, grpcio::Error> {
-        client.subscribe(&kvproto::resource_usage_agent::ResourceMeteringRequest::new())
+    async fn build_stream(
+        mut client: Self::Client,
+    ) -> Result<Streaming<Self::UpstreamEvent>, Status> {
+        client
+            .subscribe(proto::ResourceMeteringRequest {})
+            .await
+            .map(|r| r.into_inner())
     }
 }
 
-fn make_credentials(tls_config: &TlsConfig) -> std::io::Result<grpcio::ChannelCredentials> {
-    let mut config = grpcio::ChannelCredentialsBuilder::new();
-    if let Some(ca_file) = tls_config.ca_file.as_ref() {
-        let ca_content = read(ca_file)?;
-        config = config.root_cert(ca_content);
-    }
-    if let (Some(crt_file), Some(key_file)) =
-        (tls_config.crt_file.as_ref(), tls_config.key_file.as_ref())
-    {
-        let crt_content = read(crt_file)?;
-        let key_content = read(key_file)?;
-        config = config.cert(crt_content, key_content);
-    }
-    Ok(config.build())
+async fn proxy_tls(
+    tls_config: &TlsConfig,
+    address: &str,
+    shutdown_notify: impl Future<Output = ()> + Send + 'static,
+) -> crate::Result<u16> {
+    let outbound = tls_connect(tls_config, address).await?;
+    let listener = TcpListener::bind("0.0.0.0:0").await?;
+    let local_address = listener.local_addr()?;
+
+    tokio::spawn(
+        async move {
+            tokio::select! {
+                _ = shutdown_notify => {},
+                res = accept_and_proxy(listener, outbound) => if let Err(error) = res {
+                    emit!(TopSQLPubSubProxyConnectError { error });
+                }
+            }
+        }
+        .in_current_span(),
+    );
+
+    Ok(local_address.port())
+}
+
+async fn tls_connect(tls_config: &TlsConfig, address: &str) -> crate::Result<SslStream<TcpStream>> {
+    let uri = address.parse::<http::Uri>()?;
+    let host = uri.host().unwrap_or_default();
+    let port = uri.port().map(|p| p.as_u16()).unwrap_or(443);
+
+    let raw_stream = TcpStream::connect(format!("{}:{:?}", &host, port)).await?;
+
+    let tls_settings = MaybeTlsSettings::tls_client(&Some(tls_config.clone()))?;
+    let mut config_builder = tls_connector_builder(&tls_settings)?;
+    config_builder.set_alpn_protos(b"\x02h2")?;
+
+    let config = config_builder.build().configure()?;
+    let ssl = config.into_ssl(host)?;
+
+    let mut stream = SslStream::new(ssl, raw_stream)?;
+    Pin::new(&mut stream).connect().await?;
+
+    Ok(stream)
+}
+
+async fn accept_and_proxy(
+    listener: TcpListener,
+    outbound: SslStream<TcpStream>,
+) -> crate::Result<()> {
+    let (inbound, _) = listener.accept().await?;
+    drop(listener);
+    transfer(inbound, outbound).await?;
+    Ok(())
+}
+
+async fn transfer(
+    mut inbound: tokio::net::TcpStream,
+    outbound: SslStream<TcpStream>,
+) -> crate::Result<()> {
+    let (mut ri, mut wi) = inbound.split();
+    let (mut ro, mut wo) = tokio::io::split(outbound);
+
+    let client_to_server = async {
+        tokio::io::copy(&mut ri, &mut wo).await?;
+        wo.shutdown().await
+    };
+
+    let server_to_client = async {
+        tokio::io::copy(&mut ro, &mut wi).await?;
+        wi.shutdown().await
+    };
+
+    tokio::try_join!(client_to_server, server_to_client)?;
+
+    Ok(())
 }

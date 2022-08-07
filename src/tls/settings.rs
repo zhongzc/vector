@@ -34,10 +34,10 @@ pub const TEST_PEM_CRT_PATH: &str =
     "tests/data/ca/intermediate_server/certs/localhost-chain.cert.pem";
 #[cfg(test)]
 pub const TEST_PEM_KEY_PATH: &str = "tests/data/ca/intermediate_server/private/localhost.key.pem";
-#[cfg(all(test, feature = "sources-socket"))]
+#[cfg(test)]
 pub const TEST_PEM_CLIENT_CRT_PATH: &str =
     "tests/data/ca/intermediate_client/certs/localhost-chain.cert.pem";
-#[cfg(all(test, feature = "sources-socket"))]
+#[cfg(test)]
 pub const TEST_PEM_CLIENT_KEY_PATH: &str =
     "tests/data/ca/intermediate_client/private/localhost.key.pem";
 

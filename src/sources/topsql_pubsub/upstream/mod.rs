@@ -1,25 +1,27 @@
-use std::{future::Future, sync::Arc};
-
 pub mod parser;
 pub mod tidb;
 pub mod tikv;
 
+use std::future::Future;
+
+use tonic::transport::{Channel, Endpoint};
+use vector_common::byte_size_of::ByteSizeOf;
+
 #[async_trait::async_trait]
 pub trait Upstream: Send {
     type Client: Send;
-    type UpstreamEvent: protobuf::Message;
+    type UpstreamEvent: ByteSizeOf + Send;
     type UpstreamEventParser: parser::UpstreamEventParser<UpstreamEvent = Self::UpstreamEvent>;
 
-    async fn build_channel(
-        address: &str,
-        env: Arc<grpcio::Environment>,
+    async fn build_endpoint(
+        address: String,
         tls_config: &crate::tls::TlsConfig,
         shutdown_notify: impl Future<Output = ()> + Send + 'static,
-    ) -> crate::Result<grpcio::Channel>;
+    ) -> crate::Result<Endpoint>;
 
-    fn build_client(channel: grpcio::Channel) -> Self::Client;
+    fn build_client(channel: Channel) -> Self::Client;
 
-    fn build_stream(
-        client: &Self::Client,
-    ) -> Result<grpcio::ClientSStreamReceiver<Self::UpstreamEvent>, grpcio::Error>;
+    async fn build_stream(
+        client: Self::Client,
+    ) -> Result<tonic::codec::Streaming<Self::UpstreamEvent>, tonic::Status>;
 }

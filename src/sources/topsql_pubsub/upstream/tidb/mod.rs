@@ -1,20 +1,25 @@
 mod parser;
+pub mod proto;
 
 #[cfg(test)]
 pub mod mock_upstream;
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, pin::Pin};
 
 use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
 };
 use tokio_openssl::SslStream;
+use tonic::{
+    transport::{Channel, Endpoint},
+    Status, Streaming,
+};
 use tracing_futures::Instrument;
 
 use super::Upstream;
 use crate::{
-    internal_events::TopSQLPubSubConnectError,
+    internal_events::TopSQLPubSubProxyConnectError,
     tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
 };
 
@@ -22,46 +27,41 @@ pub struct TiDBUpstream;
 
 #[async_trait::async_trait]
 impl Upstream for TiDBUpstream {
-    type Client = tipb::TopSqlPubSubClient;
-    type UpstreamEvent = tipb::TopSqlSubResponse;
+    type Client = proto::top_sql_pub_sub_client::TopSqlPubSubClient<Channel>;
+    type UpstreamEvent = proto::TopSqlSubResponse;
     type UpstreamEventParser = parser::TopSqlSubResponseParser;
 
-    async fn build_channel(
-        address: &str,
-        env: Arc<grpcio::Environment>,
+    async fn build_endpoint(
+        address: String,
         tls_config: &TlsConfig,
         shutdown_notify: impl Future<Output = ()> + Send + 'static,
-    ) -> crate::Result<grpcio::Channel> {
+    ) -> crate::Result<Endpoint> {
         let tls_is_set = tls_config.ca_file.is_some()
             || tls_config.crt_file.is_some()
             || tls_config.key_file.is_some();
 
-        let channel = if !tls_is_set {
-            let cb = grpcio::ChannelBuilder::new(env);
-            cb.connect(address)
+        let endpoint = if !tls_is_set {
+            Channel::from_shared(address.clone())?
         } else {
             // do proxy
-            let port = proxy_tls(tls_config, address, shutdown_notify).await?;
-            let cb = grpcio::ChannelBuilder::new(env);
-            cb.connect(&format!("127.0.0.1:{}", port))
+            let port = proxy_tls(tls_config, &address, shutdown_notify).await?;
+            Channel::from_shared(format!("http://127.0.0.1:{}", port))?
         };
 
-        let ok = channel.wait_for_connected(Duration::from_secs(2)).await;
-        if !ok {
-            return Err(format!("failed to connect to {:?}", address).into());
-        }
-
-        Ok(channel)
+        Ok(endpoint)
     }
 
-    fn build_client(channel: grpcio::Channel) -> Self::Client {
+    fn build_client(channel: Channel) -> Self::Client {
         Self::Client::new(channel)
     }
 
-    fn build_stream(
-        client: &Self::Client,
-    ) -> Result<grpcio::ClientSStreamReceiver<Self::UpstreamEvent>, grpcio::Error> {
-        client.subscribe(&tipb::TopSqlSubRequest::new())
+    async fn build_stream(
+        mut client: Self::Client,
+    ) -> Result<Streaming<Self::UpstreamEvent>, Status> {
+        client
+            .subscribe(proto::TopSqlSubRequest {})
+            .await
+            .map(|r| r.into_inner())
     }
 }
 
@@ -79,7 +79,7 @@ async fn proxy_tls(
             tokio::select! {
                 _ = shutdown_notify => {},
                 res = accept_and_proxy(listener, outbound) => if let Err(error) = res {
-                    emit!(TopSQLPubSubConnectError { error });
+                    emit!(TopSQLPubSubProxyConnectError { error });
                 }
             }
         }
@@ -90,12 +90,15 @@ async fn proxy_tls(
 }
 
 async fn tls_connect(tls_config: &TlsConfig, address: &str) -> crate::Result<SslStream<TcpStream>> {
-    let raw_stream = TcpStream::connect(address).await?;
+    let uri = address.parse::<http::Uri>()?;
+    let host = uri.host().unwrap_or_default();
+    let port = uri.port().map(|p| p.as_u16()).unwrap_or(443);
+
+    let raw_stream = TcpStream::connect(format!("{}:{:?}", &host, port)).await?;
 
     let tls_settings = MaybeTlsSettings::tls_client(&Some(tls_config.clone()))?;
     let config = tls_connector_builder(&tls_settings)?.build().configure()?;
-    let uri = address.parse::<http::Uri>()?;
-    let ssl = config.into_ssl(uri.host().unwrap_or_default())?;
+    let ssl = config.into_ssl(host)?;
 
     let mut stream = SslStream::new(ssl, raw_stream)?;
     Pin::new(&mut stream).connect().await?;
