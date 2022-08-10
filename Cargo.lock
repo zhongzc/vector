@@ -8275,6 +8275,7 @@ dependencies = [
  "async-compression",
  "async-graphql",
  "async-graphql-warp",
+ "async-recursion",
  "async-stream",
  "async-trait",
  "atty",
