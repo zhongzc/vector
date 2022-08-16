@@ -2,6 +2,8 @@ pub mod parser;
 pub mod tidb;
 pub mod tikv;
 
+mod tls_proxy;
+
 use std::future::Future;
 
 use tonic::transport::{Channel, Endpoint};

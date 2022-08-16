@@ -1,6 +1,9 @@
+#![allow(warnings)]
+
 mod config;
 mod consts;
 mod shutdown;
+mod topology;
 mod upstream;
 mod utils;
 
