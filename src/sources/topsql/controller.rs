@@ -8,7 +8,7 @@ use vector_common::shutdown::ShutdownSignal;
 use vector_core::config::proxy::ProxyConfig;
 
 use crate::{
-    sources::topsql_pubsub::{
+    sources::topsql::{
         shutdown::{pair, ShutdownNotifier, ShutdownSubscriber},
         topology::{Component, FetchError, TopologyFetcher},
         upstream::TopSQLSource,

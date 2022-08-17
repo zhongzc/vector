@@ -1,24 +1,38 @@
+#![allow(warnings)]
+
 mod parser;
-pub mod proto;
+mod proto;
 
 #[cfg(test)]
 pub mod mock_upstream;
 
+use std::{future::Future, pin::Pin};
+
+use tokio::{
+    io::AsyncWriteExt,
+    net::{TcpListener, TcpStream},
+};
+use tokio_openssl::SslStream;
 use tonic::{
-    transport::{Channel, Endpoint},
+    transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity},
     Status, Streaming,
 };
+use tracing::Instrument;
 
 use super::{tls_proxy, Upstream};
-use crate::sources::topsql_pubsub::shutdown::ShutdownSubscriber;
+use crate::{
+    internal_events::TopSQLPubSubProxyConnectError,
+    sources::topsql::shutdown::ShutdownSubscriber,
+    tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
+};
 
-pub struct TiDBUpstream;
+pub struct TiKVUpstream;
 
 #[async_trait::async_trait]
-impl Upstream for TiDBUpstream {
-    type Client = proto::top_sql_pub_sub_client::TopSqlPubSubClient<Channel>;
-    type UpstreamEvent = proto::TopSqlSubResponse;
-    type UpstreamEventParser = parser::TopSqlSubResponseParser;
+impl Upstream for TiKVUpstream {
+    type Client = proto::resource_metering_pub_sub_client::ResourceMeteringPubSubClient<Channel>;
+    type UpstreamEvent = proto::ResourceUsageRecord;
+    type UpstreamEventParser = parser::ResourceUsageRecordParser;
 
     async fn build_endpoint(
         address: String,
@@ -44,7 +58,7 @@ impl Upstream for TiDBUpstream {
         mut client: Self::Client,
     ) -> Result<Streaming<Self::UpstreamEvent>, Status> {
         client
-            .subscribe(proto::TopSqlSubRequest {})
+            .subscribe(proto::ResourceMeteringRequest {})
             .await
             .map(|r| r.into_inner())
     }

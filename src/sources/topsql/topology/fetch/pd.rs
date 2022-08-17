@@ -4,7 +4,7 @@ use snafu::{ResultExt, Snafu};
 
 use crate::{
     http::HttpClient,
-    sources::topsql_pubsub::topology::{
+    sources::topsql::topology::{
         fetch::{models, utils},
         Component, InstanceType,
     },

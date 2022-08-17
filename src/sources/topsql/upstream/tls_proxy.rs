@@ -9,7 +9,7 @@ use tracing_futures::Instrument;
 
 use crate::{
     internal_events::TopSQLPubSubProxyConnectError,
-    sources::topsql_pubsub::shutdown::ShutdownSubscriber,
+    sources::topsql::shutdown::ShutdownSubscriber,
     tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
 };
 

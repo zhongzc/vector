@@ -5,7 +5,7 @@ use std::{
 
 use snafu::{ResultExt, Snafu};
 
-use crate::sources::topsql_pubsub::topology::{
+use crate::sources::topsql::topology::{
     fetch::{models, utils},
     Component, InstanceType,
 };

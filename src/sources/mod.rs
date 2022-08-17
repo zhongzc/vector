@@ -70,8 +70,8 @@ pub mod statsd;
 pub mod stdin;
 #[cfg(feature = "sources-syslog")]
 pub mod syslog;
-#[cfg(feature = "sources-topsql_pubsub")]
-pub mod topsql_pubsub;
+#[cfg(feature = "sources-topsql")]
+pub mod topsql;
 #[cfg(feature = "sources-vector")]
 pub mod vector;
 

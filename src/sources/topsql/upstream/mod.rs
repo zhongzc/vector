@@ -18,7 +18,7 @@ use crate::{
         BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubBuildEndpointError,
         TopSQLPubSubConnectError, TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
     },
-    sources::topsql_pubsub::{
+    sources::topsql::{
         shutdown::ShutdownSubscriber,
         topology::{Component, InstanceType},
         upstream::{

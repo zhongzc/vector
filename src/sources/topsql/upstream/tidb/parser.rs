@@ -7,7 +7,7 @@ use super::proto::{
 };
 use crate::{
     event::LogEvent,
-    sources::topsql_pubsub::upstream::{
+    sources::topsql::upstream::{
         consts::{
             INSTANCE_TYPE_TIDB, INSTANCE_TYPE_TIKV, LABEL_ENCODED_NORMALIZED_PLAN,
             LABEL_IS_INTERNAL_SQL, LABEL_NAME, LABEL_NORMALIZED_PLAN, LABEL_NORMALIZED_SQL,

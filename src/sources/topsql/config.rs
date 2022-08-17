@@ -6,12 +6,12 @@ use vector_core::config::LogNamespace;
 use crate::{
     config::{self, GenerateConfig, Output, SourceConfig, SourceContext, SourceDescription},
     sources,
-    sources::topsql_pubsub::controller::Controller,
+    sources::topsql::controller::Controller,
     tls::TlsConfig,
 };
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct TopSQLPubSubConfig {
+pub struct TopSQLConfig {
     pub pd_address: String,
     pub tls: Option<TlsConfig>,
 
@@ -26,14 +26,14 @@ pub const fn default_init_retry_delay() -> f64 {
 }
 
 pub const fn default_topology_fetch_interval() -> f64 {
-    60.0
+    30.0
 }
 
 inventory::submit! {
-    SourceDescription::new::<TopSQLPubSubConfig>("topsql_pubsub")
+    SourceDescription::new::<TopSQLConfig>("topsql")
 }
 
-impl GenerateConfig for TopSQLPubSubConfig {
+impl GenerateConfig for TopSQLConfig {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(Self {
             pd_address: "127.0.0.1:2379".to_owned(),
@@ -46,8 +46,8 @@ impl GenerateConfig for TopSQLPubSubConfig {
 }
 
 #[async_trait::async_trait]
-#[typetag::serde(name = "topsql_pubsub")]
-impl SourceConfig for TopSQLPubSubConfig {
+#[typetag::serde(name = "topsql")]
+impl SourceConfig for TopSQLConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
         self.validate_tls()?;
 
@@ -78,7 +78,7 @@ impl SourceConfig for TopSQLPubSubConfig {
     }
 
     fn source_type(&self) -> &'static str {
-        "topsql_pubsub"
+        "topsql"
     }
 
     fn can_acknowledge(&self) -> bool {
@@ -86,7 +86,7 @@ impl SourceConfig for TopSQLPubSubConfig {
     }
 }
 
-impl TopSQLPubSubConfig {
+impl TopSQLConfig {
     fn validate_tls(&self) -> crate::Result<()> {
         if self.tls.is_none() {
             return Ok(());
@@ -126,6 +126,6 @@ mod tests {
 
     #[test]
     fn generate_config() {
-        crate::test_util::test_generate_config::<TopSQLPubSubConfig>();
+        crate::test_util::test_generate_config::<TopSQLConfig>();
     }
 }

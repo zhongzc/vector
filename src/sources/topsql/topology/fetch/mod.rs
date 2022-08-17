@@ -11,7 +11,7 @@ use snafu::{ResultExt, Snafu};
 use crate::{
     config::ProxyConfig,
     http::HttpClient,
-    sources::topsql_pubsub::topology::Component,
+    sources::topsql::topology::Component,
     tls::{MaybeTlsSettings, TlsConfig},
 };
 
