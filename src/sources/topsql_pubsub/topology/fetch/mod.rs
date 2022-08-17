@@ -4,16 +4,16 @@ mod store;
 mod tidb;
 mod utils;
 
-use std::collections::HashSet;
-use std::fs::read;
+use std::{collections::HashSet, fs::read};
 
 use snafu::{ResultExt, Snafu};
 
-use crate::config::ProxyConfig;
-use crate::http::HttpClient;
-use crate::sources::topsql_pubsub::topology::Component;
-use crate::tls::MaybeTlsSettings;
-use crate::tls::TlsConfig;
+use crate::{
+    config::ProxyConfig,
+    http::HttpClient,
+    sources::topsql_pubsub::topology::Component,
+    tls::{MaybeTlsSettings, TlsConfig},
+};
 
 #[derive(Debug, Snafu)]
 pub enum FetchError {

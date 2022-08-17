@@ -20,9 +20,9 @@ use tonic::{
 use tracing::Instrument;
 
 use super::{tls_proxy, Upstream};
-use crate::sources::topsql_pubsub::shutdown::ShutdownSubscriber;
 use crate::{
     internal_events::TopSQLPubSubProxyConnectError,
+    sources::topsql_pubsub::shutdown::ShutdownSubscriber,
     tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
 };
 

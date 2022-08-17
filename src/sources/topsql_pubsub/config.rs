@@ -3,10 +3,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use vector_core::config::LogNamespace;
 
-use crate::sources::topsql_pubsub::controller::Controller;
 use crate::{
     config::{self, GenerateConfig, Output, SourceConfig, SourceContext, SourceDescription},
     sources,
+    sources::topsql_pubsub::controller::Controller,
     tls::TlsConfig,
 };
 

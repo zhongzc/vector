@@ -61,11 +61,14 @@ impl ShutdownSubscriber {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
     use tokio::time::timeout;
+
+    use super::*;
 
     #[tokio::test]
     async fn ten_subscribers() {

@@ -5,12 +5,11 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tokio_openssl::SslStream;
-
 use tracing_futures::Instrument;
 
-use crate::sources::topsql_pubsub::shutdown::ShutdownSubscriber;
 use crate::{
     internal_events::TopSQLPubSubProxyConnectError,
+    sources::topsql_pubsub::shutdown::ShutdownSubscriber,
     tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
 };
 

@@ -1,10 +1,14 @@
-use std::collections::HashSet;
-use std::time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::{
+    collections::HashSet,
+    time::{Duration, SystemTime, SystemTimeError, UNIX_EPOCH},
+};
 
 use snafu::{ResultExt, Snafu};
 
-use crate::sources::topsql_pubsub::topology::fetch::{models, utils};
-use crate::sources::topsql_pubsub::topology::{Component, InstanceType};
+use crate::sources::topsql_pubsub::topology::{
+    fetch::{models, utils},
+    Component, InstanceType,
+};
 
 #[derive(Debug, Snafu)]
 pub enum FetchError {

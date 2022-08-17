@@ -1,15 +1,21 @@
-use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use tracing::instrument::Instrument;
 use vector_common::shutdown::ShutdownSignal;
 use vector_core::config::proxy::ProxyConfig;
 
-use crate::sources::topsql_pubsub::shutdown::{pair, ShutdownNotifier, ShutdownSubscriber};
-use crate::sources::topsql_pubsub::topology::{Component, FetchError, TopologyFetcher};
-use crate::sources::topsql_pubsub::upstream::TopSQLSource;
-use crate::tls::TlsConfig;
-use crate::SourceSender;
+use crate::{
+    sources::topsql_pubsub::{
+        shutdown::{pair, ShutdownNotifier, ShutdownSubscriber},
+        topology::{Component, FetchError, TopologyFetcher},
+        upstream::TopSQLSource,
+    },
+    tls::TlsConfig,
+    SourceSender,
+};
 
 pub struct Controller {
     topo_fetch_interval: Duration,

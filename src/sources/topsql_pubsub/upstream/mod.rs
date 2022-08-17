@@ -6,25 +6,25 @@ mod consts;
 mod tls_proxy;
 mod utils;
 
-use tonic::transport::{Channel, Endpoint};
-use vector_common::byte_size_of::ByteSizeOf;
-
 use std::time::Duration;
 
 use futures::StreamExt;
 use tokio_stream::wrappers::IntervalStream;
+use tonic::transport::{Channel, Endpoint};
+use vector_common::byte_size_of::ByteSizeOf;
 
-use crate::sources::topsql_pubsub::shutdown::ShutdownSubscriber;
-use crate::sources::topsql_pubsub::topology::Component;
-use crate::sources::topsql_pubsub::topology::InstanceType;
-use crate::sources::topsql_pubsub::upstream::parser::UpstreamEventParser;
-use crate::sources::topsql_pubsub::upstream::tidb::TiDBUpstream;
-use crate::sources::topsql_pubsub::upstream::tikv::TiKVUpstream;
-use crate::sources::topsql_pubsub::upstream::utils::instance_event;
 use crate::{
     internal_events::{
         BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubBuildEndpointError,
         TopSQLPubSubConnectError, TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
+    },
+    sources::topsql_pubsub::{
+        shutdown::ShutdownSubscriber,
+        topology::{Component, InstanceType},
+        upstream::{
+            parser::UpstreamEventParser, tidb::TiDBUpstream, tikv::TiKVUpstream,
+            utils::instance_event,
+        },
     },
     tls::TlsConfig,
     SourceSender,

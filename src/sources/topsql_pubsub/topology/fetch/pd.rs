@@ -2,9 +2,13 @@ use std::collections::HashSet;
 
 use snafu::{ResultExt, Snafu};
 
-use crate::http::HttpClient;
-use crate::sources::topsql_pubsub::topology::fetch::{models, utils};
-use crate::sources::topsql_pubsub::topology::{Component, InstanceType};
+use crate::{
+    http::HttpClient,
+    sources::topsql_pubsub::topology::{
+        fetch::{models, utils},
+        Component, InstanceType,
+    },
+};
 
 #[derive(Debug, Snafu)]
 pub enum FetchError {
