@@ -2,11 +2,11 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use vector_core::event::LogEvent;
 
 use crate::sources::topsql_pubsub::{
-    consts::{
+    upstream::consts::{
         LABEL_INSTANCE, LABEL_INSTANCE_TYPE, LABEL_NAME, LABEL_PLAN_DIGEST, LABEL_SQL_DIGEST,
         LABEL_TAG_LABEL,
     },
-    utils::make_metric_like_log_event,
+    upstream::utils::make_metric_like_log_event,
 };
 
 pub trait UpstreamEventParser {

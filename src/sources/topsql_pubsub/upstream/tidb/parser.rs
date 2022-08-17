@@ -8,7 +8,7 @@ use super::proto::{
 use crate::{
     event::LogEvent,
     sources::topsql_pubsub::{
-        consts::{
+        upstream::consts::{
             INSTANCE_TYPE_TIDB, INSTANCE_TYPE_TIKV, LABEL_ENCODED_NORMALIZED_PLAN,
             LABEL_IS_INTERNAL_SQL, LABEL_NAME, LABEL_NORMALIZED_PLAN, LABEL_NORMALIZED_SQL,
             LABEL_PLAN_DIGEST, LABEL_SQL_DIGEST, METRIC_NAME_CPU_TIME_MS, METRIC_NAME_PLAN_META,
@@ -16,7 +16,7 @@ use crate::{
             METRIC_NAME_STMT_DURATION_SUM_NS, METRIC_NAME_STMT_EXEC_COUNT,
         },
         upstream::parser::{Buf, UpstreamEventParser},
-        utils::make_metric_like_log_event,
+        upstream::utils::make_metric_like_log_event,
     },
 };
 

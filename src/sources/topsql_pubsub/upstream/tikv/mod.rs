@@ -20,6 +20,7 @@ use tonic::{
 use tracing::Instrument;
 
 use super::{tls_proxy, Upstream};
+use crate::sources::topsql_pubsub::shutdown::ShutdownSubscriber;
 use crate::{
     internal_events::TopSQLPubSubProxyConnectError,
     tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
@@ -35,18 +36,14 @@ impl Upstream for TiKVUpstream {
 
     async fn build_endpoint(
         address: String,
-        tls_config: &TlsConfig,
-        shutdown_notify: impl Future<Output = ()> + Send + 'static,
+        tls_config: &Option<crate::tls::TlsConfig>,
+        shutdown_subscriber: ShutdownSubscriber,
     ) -> crate::Result<Endpoint> {
-        let tls_is_set = tls_config.ca_file.is_some()
-            || tls_config.crt_file.is_some()
-            || tls_config.key_file.is_some();
-
-        let endpoint = if !tls_is_set {
+        let endpoint = if tls_config.is_none() {
             Channel::from_shared(address.clone())?
         } else {
             // do proxy
-            let port = tls_proxy::tls_proxy(tls_config, &address, shutdown_notify).await?;
+            let port = tls_proxy::tls_proxy(tls_config, &address, shutdown_subscriber).await?;
             Channel::from_shared(format!("http://127.0.0.1:{}", port))?
         };
 

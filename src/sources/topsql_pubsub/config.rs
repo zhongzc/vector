@@ -1,40 +1,32 @@
 use std::time::Duration;
 
-use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
-use snafu::{ResultExt, Snafu};
 use vector_core::config::LogNamespace;
 
-use super::{
-    consts::{INSTANCE_TYPE_TIDB, INSTANCE_TYPE_TIKV},
-    upstream::{tidb::TiDBUpstream, tikv::TiKVUpstream, Upstream},
-    TopSQLSource,
-};
+use crate::sources::topsql_pubsub::controller::Controller;
 use crate::{
     config::{self, GenerateConfig, Output, SourceConfig, SourceContext, SourceDescription},
     sources,
     tls::TlsConfig,
 };
 
-#[derive(Debug, Snafu)]
-pub enum ConfigError {
-    #[snafu(display("Unsupported instance type {:?}", instance_type))]
-    UnsupportedInstanceType { instance_type: String },
-}
-
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct TopSQLPubSubConfig {
-    pub instance: String,
-    pub instance_type: String,
+    pub pd_address: String,
     pub tls: Option<TlsConfig>,
 
-    /// The amount of time, in seconds, to wait between retry attempts after an error.
-    #[serde(default = "default_retry_delay")]
-    pub retry_delay_seconds: f64,
+    #[serde(default = "default_init_retry_delay")]
+    pub init_retry_delay_seconds: f64,
+    #[serde(default = "default_topology_fetch_interval")]
+    pub topology_fetch_interval_seconds: f64,
 }
 
-pub const fn default_retry_delay() -> f64 {
+pub const fn default_init_retry_delay() -> f64 {
     1.0
+}
+
+pub const fn default_topology_fetch_interval() -> f64 {
+    60.0
 }
 
 inventory::submit! {
@@ -44,10 +36,10 @@ inventory::submit! {
 impl GenerateConfig for TopSQLPubSubConfig {
     fn generate_config() -> toml::Value {
         toml::Value::try_from(Self {
-            instance: "127.0.0.1:10080".to_owned(),
-            instance_type: "tidb".to_owned(),
+            pd_address: "127.0.0.1:2379".to_owned(),
             tls: None,
-            retry_delay_seconds: default_retry_delay(),
+            init_retry_delay_seconds: default_init_retry_delay(),
+            topology_fetch_interval_seconds: default_topology_fetch_interval(),
         })
         .unwrap()
     }
@@ -58,16 +50,27 @@ impl GenerateConfig for TopSQLPubSubConfig {
 impl SourceConfig for TopSQLPubSubConfig {
     async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
         self.validate_tls()?;
-        match self.instance_type.as_str() {
-            INSTANCE_TYPE_TIDB => self.run_source::<TiDBUpstream>(cx),
-            INSTANCE_TYPE_TIKV => self.run_source::<TiKVUpstream>(cx),
-            _ => {
-                return Err(ConfigError::UnsupportedInstanceType {
-                    instance_type: self.instance_type.clone(),
-                }
-                .into());
-            }
-        }
+
+        let pd_address = self.pd_address.clone();
+        let tls = self.tls.clone();
+        let topology_fetch_interval = Duration::from_secs_f64(self.topology_fetch_interval_seconds);
+        let init_retry_delay = Duration::from_secs_f64(self.init_retry_delay_seconds);
+        Ok(Box::pin(async move {
+            let controller = Controller::new(
+                pd_address,
+                topology_fetch_interval,
+                init_retry_delay,
+                tls,
+                &cx.proxy,
+                cx.out,
+            )
+            .await
+            .map_err(|error| error!(message = "Source failed.", %error))?;
+
+            controller.run(cx.shutdown).await;
+
+            Ok(())
+        }))
     }
 
     fn outputs(&self, _global_log_namespace: LogNamespace) -> Vec<Output> {
@@ -84,61 +87,6 @@ impl SourceConfig for TopSQLPubSubConfig {
 }
 
 impl TopSQLPubSubConfig {
-    fn run_source<U: Upstream + 'static>(
-        &self,
-        cx: SourceContext,
-    ) -> crate::Result<sources::Source> {
-        let (instance, uri) = self.parse_instance()?;
-        let source = TopSQLSource::<U>::new(
-            instance,
-            self.instance_type.clone(),
-            uri,
-            self.tls.clone().unwrap_or_default(),
-            cx.shutdown,
-            cx.out,
-            Duration::from_secs_f64(self.retry_delay_seconds),
-        )
-        .run()
-        .map_err(|error| error!(message = "Source failed.", %error));
-
-        Ok(Box::pin(source))
-    }
-
-    // return instance and uri
-    fn parse_instance(&self) -> crate::Result<(String, http::Uri)> {
-        // expect no schema in instance
-        let (instance, endpoint) = match (
-            self.instance.starts_with("http://"),
-            self.instance.starts_with("https://"),
-            self.tls.is_some(),
-        ) {
-            (true, _, _) => {
-                let instance = self.instance.strip_prefix("http://").unwrap().to_owned();
-                let endpoint = self.instance.clone();
-                (instance, endpoint)
-            }
-            (false, true, _) => {
-                let instance = self.instance.strip_prefix("https://").unwrap().to_owned();
-                let endpoint = self.instance.clone();
-                (instance, endpoint)
-            }
-            (false, false, true) => {
-                let instance = self.instance.clone();
-                let endpoint = format!("https://{}", self.instance);
-                (instance, endpoint)
-            }
-            (false, false, false) => {
-                let instance = self.instance.clone();
-                let endpoint = format!("http://{}", self.instance);
-                (instance, endpoint)
-            }
-        };
-        let uri = endpoint
-            .parse::<http::Uri>()
-            .context(sources::UriParseSnafu)?;
-        Ok((instance, uri))
-    }
-
     fn validate_tls(&self) -> crate::Result<()> {
         if self.tls.is_none() {
             return Ok(());

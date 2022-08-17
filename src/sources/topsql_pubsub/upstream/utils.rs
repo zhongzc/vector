@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, future::Future};
+use std::collections::BTreeMap;
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
@@ -43,13 +43,4 @@ pub fn instance_event(instance: String, instance_type: String) -> LogEvent {
         &[Utc::now()],
         &[1.0],
     )
-}
-
-// returns notifier and notified
-pub fn notify_pair() -> (impl Drop + Send, impl Future<Output = ()> + Send) {
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-
-    (tx, async move {
-        let _ = rx.await;
-    })
 }

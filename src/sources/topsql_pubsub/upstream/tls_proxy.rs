@@ -1,4 +1,4 @@
-use std::{future::Future, pin::Pin};
+use std::pin::Pin;
 
 use tokio::{
     io::AsyncWriteExt,
@@ -8,15 +8,16 @@ use tokio_openssl::SslStream;
 
 use tracing_futures::Instrument;
 
+use crate::sources::topsql_pubsub::shutdown::ShutdownSubscriber;
 use crate::{
     internal_events::TopSQLPubSubProxyConnectError,
     tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
 };
 
 pub async fn tls_proxy(
-    tls_config: &TlsConfig,
+    tls_config: &Option<TlsConfig>,
     address: &str,
-    shutdown_notify: impl Future<Output = ()> + Send + 'static,
+    mut shutdown_subscriber: ShutdownSubscriber,
 ) -> crate::Result<u16> {
     let outbound = tls_connect(tls_config, address).await?;
     let listener = TcpListener::bind("0.0.0.0:0").await?;
@@ -25,7 +26,7 @@ pub async fn tls_proxy(
     tokio::spawn(
         async move {
             tokio::select! {
-                _ = shutdown_notify => {},
+                _ = shutdown_subscriber.done() => {},
                 res = accept_and_proxy(listener, outbound) => if let Err(error) = res {
                     emit!(TopSQLPubSubProxyConnectError { error });
                 }
@@ -37,15 +38,21 @@ pub async fn tls_proxy(
     Ok(local_address.port())
 }
 
-async fn tls_connect(tls_config: &TlsConfig, address: &str) -> crate::Result<SslStream<TcpStream>> {
+async fn tls_connect(
+    tls_config: &Option<TlsConfig>,
+    address: &str,
+) -> crate::Result<SslStream<TcpStream>> {
     let uri = address.parse::<http::Uri>()?;
     let host = uri.host().unwrap_or_default();
     let port = uri.port().map(|p| p.as_u16()).unwrap_or(443);
 
     let raw_stream = TcpStream::connect(format!("{}:{:?}", &host, port)).await?;
 
-    let tls_settings = MaybeTlsSettings::tls_client(&Some(tls_config.clone()))?;
-    let config = tls_connector_builder(&tls_settings)?.build().configure()?;
+    let tls_settings = MaybeTlsSettings::tls_client(tls_config)?;
+    let mut config_builder = tls_connector_builder(&tls_settings)?;
+    config_builder.set_alpn_protos(b"\x02h2")?;
+
+    let config = config_builder.build().configure()?;
     let ssl = config.into_ssl(host)?;
 
     let mut stream = SslStream::new(ssl, raw_stream)?;

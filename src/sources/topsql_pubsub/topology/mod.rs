@@ -5,7 +5,6 @@ use std::fmt;
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
 pub enum InstanceType {
-    Unknown,
     PD,
     TiDB,
     TiKV,
@@ -15,7 +14,6 @@ pub enum InstanceType {
 impl fmt::Display for InstanceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InstanceType::Unknown => write!(f, "unknown"),
             InstanceType::PD => write!(f, "pd"),
             InstanceType::TiDB => write!(f, "tidb"),
             InstanceType::TiKV => write!(f, "tikv"),
