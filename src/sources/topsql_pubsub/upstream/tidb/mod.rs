@@ -4,24 +4,15 @@ pub mod proto;
 #[cfg(test)]
 pub mod mock_upstream;
 
-use std::{future::Future, pin::Pin};
+use std::future::Future;
 
-use tokio::{
-    io::AsyncWriteExt,
-    net::{TcpListener, TcpStream},
-};
-use tokio_openssl::SslStream;
 use tonic::{
     transport::{Channel, Endpoint},
     Status, Streaming,
 };
-use tracing_futures::Instrument;
 
 use super::{tls_proxy, Upstream};
-use crate::{
-    internal_events::TopSQLPubSubProxyConnectError,
-    tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
-};
+use crate::tls::TlsConfig;
 
 pub struct TiDBUpstream;
 

@@ -5,10 +5,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tokio_openssl::SslStream;
-use tonic::{
-    transport::{Channel, Endpoint},
-    Status, Streaming,
-};
+
 use tracing_futures::Instrument;
 
 use crate::{
