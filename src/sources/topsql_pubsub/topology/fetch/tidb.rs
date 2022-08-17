@@ -54,7 +54,7 @@ impl<'a> TiDBTopologyFetcher<'a> {
 
     pub async fn get_up_tidbs(
         &mut self,
-        components: &mut Vec<Component>,
+        components: &mut HashSet<Component>,
     ) -> Result<(), FetchError> {
         let mut up_tidbs = HashSet::new();
         let mut tidbs = Vec::new();
@@ -86,7 +86,7 @@ impl<'a> TiDBTopologyFetcher<'a> {
 
         for (address, component) in tidbs {
             if up_tidbs.contains(&address) {
-                components.push(component);
+                components.insert(component);
             }
         }
 

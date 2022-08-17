@@ -45,7 +45,7 @@ impl<'a> PDTopologyFetcher<'a> {
         }
     }
 
-    pub async fn get_up_pds(&self, components: &mut Vec<Component>) -> Result<(), FetchError> {
+    pub async fn get_up_pds(&self, components: &mut HashSet<Component>) -> Result<(), FetchError> {
         let health_resp = self.fetch_pd_health().await?;
         let members_resp = self.fetch_pd_members().await?;
 
@@ -57,7 +57,7 @@ impl<'a> PDTopologyFetcher<'a> {
             if health_members.contains(&member.member_id) {
                 if let Some(url) = member.client_urls.iter().next() {
                     let (host, port) = utils::parse_host_port(url).context(ParsePDAddressSnafu)?;
-                    components.push(Component {
+                    components.insert(Component {
                         instance_type: InstanceType::PD,
                         host,
                         primary_port: port,

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use snafu::{ResultExt, Snafu};
 
 use crate::http::HttpClient;
@@ -36,7 +38,7 @@ impl<'a> StoreTopologyFetcher<'a> {
 
     pub async fn get_up_stores(
         &mut self,
-        components: &mut Vec<Component>,
+        components: &mut HashSet<Component>,
     ) -> Result<(), FetchError> {
         let stores_resp = self.fetch_stores().await?;
 
@@ -51,7 +53,7 @@ impl<'a> StoreTopologyFetcher<'a> {
                 utils::parse_host_port(&store.status_address).context(ParseStoreAddressSnafu)?;
             let instance_type = Self::parse_instance_type(&store);
 
-            components.push(Component {
+            components.insert(Component {
                 instance_type,
                 host,
                 primary_port,

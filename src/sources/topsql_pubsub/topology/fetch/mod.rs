@@ -4,9 +4,9 @@ mod store;
 mod tidb;
 mod utils;
 
+use std::collections::HashSet;
 use std::fs::read;
 
-use hyper::Uri;
 use snafu::{ResultExt, Snafu};
 
 use crate::config::ProxyConfig;
@@ -64,7 +64,7 @@ impl TopologyFetcher {
 
     pub async fn get_up_components(
         &mut self,
-        components: &mut Vec<Component>,
+        components: &mut HashSet<Component>,
     ) -> Result<(), FetchError> {
         pd::PDTopologyFetcher::new(&self.pd_address, &self.http_client)
             .get_up_pds(components)
@@ -85,7 +85,7 @@ impl TopologyFetcher {
         mut address: String,
         tls_config: &Option<TlsConfig>,
     ) -> Result<String, FetchError> {
-        let uri: Uri = address.parse().context(ParseAddressSnafu)?;
+        let uri: hyper::Uri = address.parse().context(ParseAddressSnafu)?;
         if uri.scheme().is_none() {
             if tls_config.is_some() {
                 address = format!("https://{}", address);

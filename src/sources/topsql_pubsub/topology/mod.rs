@@ -1,6 +1,9 @@
 mod fetch;
 
-#[derive(Debug, Copy, Clone)]
+pub use fetch::{FetchError, TopologyFetcher};
+use std::fmt;
+
+#[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
 pub enum InstanceType {
     Unknown,
     PD,
@@ -9,7 +12,19 @@ pub enum InstanceType {
     TiFlash,
 }
 
-#[derive(Debug, Clone)]
+impl fmt::Display for InstanceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstanceType::Unknown => write!(f, "unknown"),
+            InstanceType::PD => write!(f, "pd"),
+            InstanceType::TiDB => write!(f, "tidb"),
+            InstanceType::TiKV => write!(f, "tikv"),
+            InstanceType::TiFlash => write!(f, "tiflash"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct Component {
     pub instance_type: InstanceType,
     pub host: String,
@@ -24,5 +39,15 @@ impl Component {
             InstanceType::TiKV => Some(format!("{}:{}", self.host, self.primary_port)),
             _ => None,
         }
+    }
+}
+
+impl fmt::Display for Component {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}({}:{}, {}:{})",
+            self.instance_type, self.host, self.primary_port, self.host, self.secondary_port
+        )
     }
 }

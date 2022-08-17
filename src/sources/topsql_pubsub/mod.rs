@@ -2,6 +2,7 @@
 
 mod config;
 mod consts;
+mod controller;
 mod shutdown;
 mod topology;
 mod upstream;
@@ -34,7 +35,10 @@ pub struct TopSQLSource<U: Upstream> {
     tls: TlsConfig,
     shutdown: ShutdownSignal,
     out: SourceSender,
+
+    init_retry_delay: Duration,
     retry_delay: Duration,
+
     _p: PhantomData<U>,
 }
 
@@ -53,7 +57,7 @@ impl<U: Upstream> TopSQLSource<U> {
         tls: TlsConfig,
         shutdown: ShutdownSignal,
         out: SourceSender,
-        retry_delay: Duration,
+        init_retry_delay: Duration,
     ) -> Self {
         Self {
             instance,
@@ -62,7 +66,10 @@ impl<U: Upstream> TopSQLSource<U> {
             tls,
             shutdown,
             out,
-            retry_delay,
+
+            init_retry_delay,
+            retry_delay: init_retry_delay,
+
             _p: PhantomData::default(),
         }
     }
@@ -73,11 +80,15 @@ impl<U: Upstream> TopSQLSource<U> {
             match state {
                 State::RetryNow => debug!("Retrying immediately."),
                 State::RetryDelay => {
+                    self.retry_delay *= 2;
                     info!(
                         timeout_secs = self.retry_delay.as_secs_f64(),
                         "Retrying after timeout."
                     );
-                    tokio::time::sleep(self.retry_delay).await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(self.retry_delay) => {},
+                        _ = &mut self.shutdown => break,
+                    }
                 }
                 State::Shutdown => break,
             }
@@ -118,6 +129,7 @@ impl<U: Upstream> TopSQLSource<U> {
                 return State::RetryDelay;
             }
         };
+        self.on_connected();
 
         let mut instance_stream =
             IntervalStream::new(tokio::time::interval(Duration::from_secs(30)));
@@ -162,6 +174,10 @@ impl<U: Upstream> TopSQLSource<U> {
         if let Err(error) = self.out.send_event(event).await {
             emit!(StreamClosedError { error, count: 1 })
         }
+    }
+
+    fn on_connected(&mut self) {
+        self.retry_delay = self.init_retry_delay;
     }
 }
 
