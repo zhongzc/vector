@@ -1,16 +1,15 @@
 use prost::Message;
 
 use super::proto::{resource_usage_record::RecordOneof, GroupTagRecord, ResourceUsageRecord};
-use crate::{
-    event::LogEvent,
-    sources::topsql::upstream::{
-        consts::{
-            INSTANCE_TYPE_TIKV, KV_TAG_LABEL_INDEX, KV_TAG_LABEL_ROW, KV_TAG_LABEL_UNKNOWN,
-            METRIC_NAME_CPU_TIME_MS, METRIC_NAME_READ_KEYS, METRIC_NAME_WRITE_KEYS,
-        },
-        parser::{Buf, UpstreamEventParser},
-        tidb::proto::ResourceGroupTag,
+use vector::event::LogEvent;
+
+use crate::upstream::{
+    consts::{
+        INSTANCE_TYPE_TIKV, KV_TAG_LABEL_INDEX, KV_TAG_LABEL_ROW, KV_TAG_LABEL_UNKNOWN,
+        METRIC_NAME_CPU_TIME_MS, METRIC_NAME_READ_KEYS, METRIC_NAME_WRITE_KEYS,
     },
+    parser::{Buf, UpstreamEventParser},
+    tidb::proto::ResourceGroupTag,
 };
 
 pub struct ResourceUsageRecordParser;

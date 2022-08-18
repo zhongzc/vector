@@ -2,12 +2,11 @@ use std::collections::HashSet;
 
 use snafu::{ResultExt, Snafu};
 
-use crate::{
-    http::HttpClient,
-    sources::topsql::topology::{
-        fetch::{models, utils},
-        Component, InstanceType,
-    },
+use vector::http::HttpClient;
+
+use crate::topology::{
+    fetch::{models, utils},
+    Component, InstanceType,
 };
 
 #[derive(Debug, Snafu)]
@@ -15,7 +14,7 @@ pub enum FetchError {
     #[snafu(display("Failed to build request: {}", source))]
     BuildRequest { source: http::Error },
     #[snafu(display("Failed to get stores: {}", source))]
-    GetStores { source: crate::http::HttpError },
+    GetStores { source: vector::http::HttpError },
     #[snafu(display("Failed to get stores text: {}", source))]
     GetStoresBytes { source: hyper::Error },
     #[snafu(display("Failed to parse stores JSON text: {}", source))]

@@ -5,19 +5,18 @@ use chrono::Utc;
 use super::proto::{
     top_sql_sub_response::RespOneof, PlanMeta, SqlMeta, TopSqlRecord, TopSqlSubResponse,
 };
-use crate::{
-    event::LogEvent,
-    sources::topsql::upstream::{
-        consts::{
-            INSTANCE_TYPE_TIDB, INSTANCE_TYPE_TIKV, LABEL_ENCODED_NORMALIZED_PLAN,
-            LABEL_IS_INTERNAL_SQL, LABEL_NAME, LABEL_NORMALIZED_PLAN, LABEL_NORMALIZED_SQL,
-            LABEL_PLAN_DIGEST, LABEL_SQL_DIGEST, METRIC_NAME_CPU_TIME_MS, METRIC_NAME_PLAN_META,
-            METRIC_NAME_SQL_META, METRIC_NAME_STMT_DURATION_COUNT,
-            METRIC_NAME_STMT_DURATION_SUM_NS, METRIC_NAME_STMT_EXEC_COUNT,
-        },
-        parser::{Buf, UpstreamEventParser},
-        utils::make_metric_like_log_event,
+use vector::event::LogEvent;
+
+use crate::upstream::{
+    consts::{
+        INSTANCE_TYPE_TIDB, INSTANCE_TYPE_TIKV, LABEL_ENCODED_NORMALIZED_PLAN,
+        LABEL_IS_INTERNAL_SQL, LABEL_NAME, LABEL_NORMALIZED_PLAN, LABEL_NORMALIZED_SQL,
+        LABEL_PLAN_DIGEST, LABEL_SQL_DIGEST, METRIC_NAME_CPU_TIME_MS, METRIC_NAME_PLAN_META,
+        METRIC_NAME_SQL_META, METRIC_NAME_STMT_DURATION_COUNT, METRIC_NAME_STMT_DURATION_SUM_NS,
+        METRIC_NAME_STMT_EXEC_COUNT,
     },
+    parser::{Buf, UpstreamEventParser},
+    utils::make_metric_like_log_event,
 };
 
 pub struct TopSqlSubResponseParser;

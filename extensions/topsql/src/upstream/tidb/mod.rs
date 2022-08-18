@@ -10,7 +10,7 @@ use tonic::{
 };
 
 use super::{tls_proxy, Upstream};
-use crate::sources::topsql::shutdown::ShutdownSubscriber;
+use crate::shutdown::ShutdownSubscriber;
 
 pub struct TiDBUpstream;
 
@@ -22,9 +22,9 @@ impl Upstream for TiDBUpstream {
 
     async fn build_endpoint(
         address: String,
-        tls_config: &Option<crate::tls::TlsConfig>,
+        tls_config: &Option<vector::tls::TlsConfig>,
         shutdown_subscriber: ShutdownSubscriber,
-    ) -> crate::Result<Endpoint> {
+    ) -> vector::Result<Endpoint> {
         let endpoint = if tls_config.is_none() {
             Channel::from_shared(address.clone())?
         } else {

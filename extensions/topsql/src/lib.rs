@@ -1,8 +1,20 @@
+#[macro_use]
+extern crate tracing;
+
 mod config;
 mod controller;
 mod shutdown;
 mod topology;
 mod upstream;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        let result = 2 + 2;
+        assert_eq!(result, 4);
+    }
+}
 
 // #[cfg(test)]
 // mod tests {
@@ -18,11 +30,11 @@ mod upstream;
 //         },
 //     };
 //     use super::*;
-//     use crate::test_util::{
+//     use vector::test_util::{
 //         components::{run_and_assert_source_compliance, SOURCE_TAGS},
 //         next_addr,
 //     };
-//     use crate::tls::{
+//     use vector::tls::{
 //         TEST_PEM_CA_PATH, TEST_PEM_CLIENT_CRT_PATH, TEST_PEM_CLIENT_KEY_PATH, TEST_PEM_CRT_PATH,
 //         TEST_PEM_KEY_PATH,
 //     };

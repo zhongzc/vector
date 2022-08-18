@@ -1,7 +1,7 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use vector_core::event::LogEvent;
 
-use crate::sources::topsql::upstream::{
+use crate::upstream::{
     consts::{
         LABEL_INSTANCE, LABEL_INSTANCE_TYPE, LABEL_NAME, LABEL_PLAN_DIGEST, LABEL_SQL_DIGEST,
         LABEL_TAG_LABEL,

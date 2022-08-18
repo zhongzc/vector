@@ -10,7 +10,7 @@ use super::proto::{
     resource_usage_record::RecordOneof,
     GroupTagRecord, GroupTagRecordItem, ResourceMeteringRequest, ResourceUsageRecord,
 };
-use crate::sources::topsql::upstream::tidb::proto::ResourceGroupTag;
+use vector::sources::topsql::upstream::tidb::proto::ResourceGroupTag;
 
 pub struct MockResourceMeteringPubSubServer;
 

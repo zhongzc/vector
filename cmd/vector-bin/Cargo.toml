@@ -1,0 +1,35 @@
+[package]
+name = "vector-bin"
+version = "0.24.0"
+authors = ["Vector Contributors <vector@datadoghq.com>"]
+edition = "2021"
+description = "A lightweight and ultra-fast tool for building observability pipelines"
+homepage = "https://vector.dev"
+license = "MPL-2.0"
+readme = "README.md"
+publish = false
+default-run = "vector"
+autobenches = false # our benchmarks are not runnable on their own either way
+rust-version = "1.62.0"
+
+[[bin]]
+name = "vector"
+path = "src/main.rs"
+
+[features]
+default = ["vector/default"]
+target-aarch64-unknown-linux-gnu = ["vector/target-aarch64-unknown-linux-gnu"]
+target-aarch64-unknown-linux-musl = ["vector/target-aarch64-unknown-linux-musl"]
+target-armv7-unknown-linux-gnueabihf = ["vector/target-armv7-unknown-linux-gnueabihf"]
+target-armv7-unknown-linux-musleabihf = ["vector/target-armv7-unknown-linux-musleabihf"]
+target-x86_64-unknown-linux-gnu = ["vector/target-x86_64-unknown-linux-gnu"]
+target-x86_64-unknown-linux-musl = ["vector/target-x86_64-unknown-linux-musl"]
+target-powerpc64le-unknown-linux-gnu = ["vector/target-powerpc64le-unknown-linux-gnu"]
+target-powerpc-unknown-linux-gnu = ["vector/target-powerpc-unknown-linux-gnu"]
+sinks-console = ["vector/sinks-console"]
+
+[dependencies]
+vector = { path = "../..", default-features = false }
+
+# Extensions
+topsql = { path = "../../extensions/topsql" }

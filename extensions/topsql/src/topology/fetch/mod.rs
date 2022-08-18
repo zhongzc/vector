@@ -11,17 +11,18 @@ use std::{collections::HashSet, fs::read};
 
 use snafu::{ResultExt, Snafu};
 
-use crate::{
+use vector::{
     config::ProxyConfig,
     http::HttpClient,
-    sources::topsql::topology::Component,
     tls::{MaybeTlsSettings, TlsConfig},
 };
+
+use crate::topology::Component;
 
 #[derive(Debug, Snafu)]
 pub enum FetchError {
     #[snafu(display("Failed to build TLS settings: {}", source))]
-    BuildTlsSettings { source: crate::tls::TlsError },
+    BuildTlsSettings { source: vector::tls::TlsError },
     #[snafu(display("Failed to read ca file: {}", source))]
     ReadCaFile { source: std::io::Error },
     #[snafu(display("Failed to read crt file: {}", source))]
@@ -31,7 +32,7 @@ pub enum FetchError {
     #[snafu(display("Failed to parse address: {}", source))]
     ParseAddress { source: http::uri::InvalidUri },
     #[snafu(display("Failed to build HTTP client: {}", source))]
-    BuildHttpClient { source: crate::http::HttpError },
+    BuildHttpClient { source: vector::http::HttpError },
     #[snafu(display("Failed to build etcd client: {}", source))]
     BuildEtcdClient { source: etcd_client::Error },
     #[snafu(display("Failed to fetch pd topology: {}", source))]
@@ -156,7 +157,7 @@ impl TopologyFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tls::TlsConfig;
+    use vector::tls::TlsConfig;
 
     #[tokio::test]
     async fn t() {

@@ -2,12 +2,11 @@ use std::collections::HashSet;
 
 use snafu::{ResultExt, Snafu};
 
-use crate::{
-    http::HttpClient,
-    sources::topsql::topology::{
-        fetch::{models, utils},
-        Component, InstanceType,
-    },
+use vector::http::HttpClient;
+
+use crate::topology::{
+    fetch::{models, utils},
+    Component, InstanceType,
 };
 
 #[derive(Debug, Snafu)]
@@ -15,13 +14,13 @@ pub enum FetchError {
     #[snafu(display("Failed to build request: {}", source))]
     BuildRequest { source: http::Error },
     #[snafu(display("Failed to get health: {}", source))]
-    GetHealth { source: crate::http::HttpError },
+    GetHealth { source: vector::http::HttpError },
     #[snafu(display("Failed to get health text: {}", source))]
     GetHealthBytes { source: hyper::Error },
     #[snafu(display("Failed to parse health JSON text: {}", source))]
     HealthJsonFromStr { source: serde_json::Error },
     #[snafu(display("Failed to get members: {}", source))]
-    GetMembers { source: crate::http::HttpError },
+    GetMembers { source: vector::http::HttpError },
     #[snafu(display("Failed to get members text: {}", source))]
     GetMembersBytes { source: hyper::Error },
     #[snafu(display("Failed to parse members JSON text: {}", source))]

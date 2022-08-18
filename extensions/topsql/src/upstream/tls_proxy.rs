@@ -7,17 +7,15 @@ use tokio::{
 use tokio_openssl::SslStream;
 use tracing_futures::Instrument;
 
-use crate::{
-    internal_events::TopSQLPubSubProxyConnectError,
-    sources::topsql::shutdown::ShutdownSubscriber,
-    tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig},
-};
+use vector::tls::{tls_connector_builder, MaybeTlsSettings, TlsConfig};
+
+use crate::shutdown::ShutdownSubscriber;
 
 pub async fn tls_proxy(
     tls_config: &Option<TlsConfig>,
     address: &str,
     mut shutdown_subscriber: ShutdownSubscriber,
-) -> crate::Result<u16> {
+) -> vector::Result<u16> {
     let outbound = tls_connect(tls_config, address).await?;
     let listener = TcpListener::bind("0.0.0.0:0").await?;
     let local_address = listener.local_addr()?;
@@ -27,7 +25,7 @@ pub async fn tls_proxy(
             tokio::select! {
                 _ = shutdown_subscriber.done() => {},
                 res = accept_and_proxy(listener, outbound) => if let Err(error) = res {
-                    emit!(TopSQLPubSubProxyConnectError { error });
+                    // emit!(TopSQLPubSubProxyConnectError { error });
                 }
             }
         }
@@ -40,7 +38,7 @@ pub async fn tls_proxy(
 async fn tls_connect(
     tls_config: &Option<TlsConfig>,
     address: &str,
-) -> crate::Result<SslStream<TcpStream>> {
+) -> vector::Result<SslStream<TcpStream>> {
     let uri = address.parse::<http::Uri>()?;
     let host = uri.host().unwrap_or_default();
     let port = uri.port().map(|p| p.as_u16()).unwrap_or(443);
@@ -63,7 +61,7 @@ async fn tls_connect(
 async fn accept_and_proxy(
     listener: TcpListener,
     outbound: SslStream<TcpStream>,
-) -> crate::Result<()> {
+) -> vector::Result<()> {
     let (inbound, _) = listener.accept().await?;
     drop(listener);
     transfer(inbound, outbound).await?;
@@ -73,7 +71,7 @@ async fn accept_and_proxy(
 async fn transfer(
     mut inbound: tokio::net::TcpStream,
     outbound: SslStream<TcpStream>,
-) -> crate::Result<()> {
+) -> vector::Result<()> {
     let (mut ri, mut wi) = inbound.split();
     let (mut ro, mut wo) = tokio::io::split(outbound);
 

@@ -13,21 +13,21 @@ use tokio_stream::wrappers::IntervalStream;
 use tonic::transport::{Channel, Endpoint};
 use vector_common::byte_size_of::ByteSizeOf;
 
-use crate::{
-    internal_events::{
-        BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubBuildEndpointError,
-        TopSQLPubSubConnectError, TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
-    },
-    sources::topsql::{
-        shutdown::ShutdownSubscriber,
-        topology::{Component, InstanceType},
-        upstream::{
-            parser::UpstreamEventParser, tidb::TiDBUpstream, tikv::TiKVUpstream,
-            utils::instance_event,
-        },
-    },
+use vector::{
+    // internal_events::{
+    //     BytesReceived, EventsReceived, StreamClosedError, TopSQLPubSubBuildEndpointError,
+    //     TopSQLPubSubConnectError, TopSQLPubSubReceiveError, TopSQLPubSubSubscribeError,
+    // },
     tls::TlsConfig,
     SourceSender,
+};
+
+use crate::{
+    shutdown::ShutdownSubscriber,
+    topology::{Component, InstanceType},
+    upstream::{
+        parser::UpstreamEventParser, tidb::TiDBUpstream, tikv::TiKVUpstream, utils::instance_event,
+    },
 };
 
 #[async_trait::async_trait]
@@ -38,9 +38,9 @@ pub trait Upstream: Send {
 
     async fn build_endpoint(
         address: String,
-        tls_config: &Option<crate::tls::TlsConfig>,
+        tls_config: &Option<vector::tls::TlsConfig>,
         shutdown_subscriber: ShutdownSubscriber,
-    ) -> crate::Result<Endpoint>;
+    ) -> vector::Result<Endpoint>;
 
     fn build_client(channel: Channel) -> Self::Client;
 
@@ -139,7 +139,7 @@ impl TopSQLSource {
                     match response {
                         Some(Ok(response)) => self.handle_response::<U>(response).await,
                         Some(Err(error)) => {
-                            emit!(TopSQLPubSubReceiveError { error });
+                            // emit!(TopSQLPubSubReceiveError { error });
                             break State::RetryDelay;
                         },
                         None => break State::RetryNow,
@@ -158,7 +158,7 @@ impl TopSQLSource {
         let endpoint = match endpoint {
             Ok(endpoint) => endpoint,
             Err(error) => {
-                emit!(TopSQLPubSubBuildEndpointError { error });
+                // emit!(TopSQLPubSubBuildEndpointError { error });
                 return Err(State::RetryDelay);
             }
         };
@@ -167,9 +167,9 @@ impl TopSQLSource {
         let channel = match channel {
             Ok(channel) => channel,
             Err(error) => {
-                emit!(TopSQLPubSubConnectError {
-                    error: Box::new(error)
-                });
+                // emit!(TopSQLPubSubConnectError {
+                //     error: Box::new(error)
+                // });
                 return Err(State::RetryDelay);
             }
         };
@@ -178,7 +178,7 @@ impl TopSQLSource {
         let response_stream = match U::build_stream(client).await {
             Ok(stream) => stream,
             Err(error) => {
-                emit!(TopSQLPubSubSubscribeError { error });
+                // emit!(TopSQLPubSubSubscribeError { error });
                 return Err(State::RetryDelay);
             }
         };
@@ -187,26 +187,26 @@ impl TopSQLSource {
     }
 
     async fn handle_response<U: Upstream>(&mut self, response: U::UpstreamEvent) {
-        emit!(BytesReceived {
-            byte_size: response.size_of(),
-            protocol: self.tls.is_none().then(|| "http").unwrap_or("https"),
-        });
+        // emit!(BytesReceived {
+        //     byte_size: response.size_of(),
+        //     protocol: self.tls.is_none().then(|| "http").unwrap_or("https"),
+        // });
 
         let events = U::UpstreamEventParser::parse(response, self.instance.clone());
         let count = events.len();
-        emit!(EventsReceived {
-            byte_size: events.size_of(),
-            count,
-        });
+        // emit!(EventsReceived {
+        //     byte_size: events.size_of(),
+        //     count,
+        // });
         if let Err(error) = self.out.send_batch(events).await {
-            emit!(StreamClosedError { error, count })
+            // emit!(StreamClosedError { error, count })
         }
     }
 
     async fn handle_instance(&mut self) {
         let event = instance_event(self.instance.clone(), self.instance_type.to_string());
         if let Err(error) = self.out.send_event(event).await {
-            emit!(StreamClosedError { error, count: 1 })
+            // emit!(StreamClosedError { error, count: 1 })
         }
     }
 

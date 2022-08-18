@@ -7,14 +7,12 @@ use tracing::instrument::Instrument;
 use vector_common::shutdown::ShutdownSignal;
 use vector_core::config::proxy::ProxyConfig;
 
+use vector::{tls::TlsConfig, SourceSender};
+
 use crate::{
-    sources::topsql::{
-        shutdown::{pair, ShutdownNotifier, ShutdownSubscriber},
-        topology::{Component, FetchError, TopologyFetcher},
-        upstream::TopSQLSource,
-    },
-    tls::TlsConfig,
-    SourceSender,
+    shutdown::{pair, ShutdownNotifier, ShutdownSubscriber},
+    topology::{Component, FetchError, TopologyFetcher},
+    upstream::TopSQLSource,
 };
 
 pub struct Controller {
@@ -41,7 +39,7 @@ impl Controller {
         tls_config: Option<TlsConfig>,
         proxy_config: &ProxyConfig,
         out: SourceSender,
-    ) -> crate::Result<Self> {
+    ) -> vector::Result<Self> {
         let topo_fetcher =
             TopologyFetcher::new(pd_address, tls_config.clone(), proxy_config).await?;
         let (shutdown_notifier, shutdown_subscriber) = pair();

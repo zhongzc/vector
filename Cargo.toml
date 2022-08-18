@@ -73,6 +73,8 @@ depends = ""
 
 [workspace]
 members = [
+  "cmd/vector-bin",
+  "extensions/topsql",
   ".",
   "lib/codecs",
   "lib/enrichment",
@@ -107,6 +109,7 @@ members = [
   "lib/datadog/search-syntax",
   "lib/datadog/filter",
 ]
+default-members = ["cmd/vector-bin"]
 
 [dependencies]
 # Internal libs
@@ -139,7 +142,6 @@ tokio-openssl = { version = "0.6.3", default-features = false }
 tokio-stream = { version = "0.1.9", default-features = false, features = ["net", "sync", "time"] }
 tokio-util = { version = "0.7", default-features = false, features = ["io", "time"] }
 console-subscriber = { version = "0.1.6", default-features = false, optional = true }
-async-recursion = "1.0.0"
 
 # Tracing
 tracing = { version = "0.1.34", default-features = false }
@@ -213,9 +215,6 @@ datadog-filter = { path = "lib/datadog/filter" }
 datadog-search-syntax = { path = "lib/datadog/search-syntax" }
 hex = { version = "0.4.3", default-features = false, optional = true }
 sha2 = { version = "0.10.2", default-features = false, optional = true }
-
-# Top SQL
-etcd-client = { version = "0.9", features = ["tls-roots"], optional = true }
 
 # VRL Lang
 vrl = { path = "lib/vrl/vrl" }
@@ -470,7 +469,6 @@ sources-logs = [
   "sources-splunk_hec",
   "sources-stdin",
   "sources-syslog",
-  "sources-topsql",
   "sources-vector",
 ]
 sources-metrics = [
@@ -522,7 +520,6 @@ sources-splunk_hec = ["sources-utils-tls", "dep:roaring"]
 sources-statsd = ["listenfd", "sources-utils-tcp-keepalive", "sources-utils-tcp-socket", "sources-utils-tls", "sources-utils-udp", "sources-utils-unix", "tokio-util/net"]
 sources-stdin = ["tokio-util/io"]
 sources-syslog = ["listenfd", "tokio-util/net", "sources-utils-udp", "sources-utils-tcp-keepalive", "sources-utils-tcp-socket", "sources-utils-tls", "sources-utils-unix", "codecs/syslog"]
-sources-topsql = ["dep:prost-types", "protobuf-build", "dep:tonic", "dep:hex", "etcd-client"]
 sources-utils-http = ["dep:snap", "sources-utils-tls", "sources-utils-http-auth", "sources-utils-http-encoding", "sources-utils-http-error", "sources-utils-http-prelude"]
 sources-utils-http-auth = ["sources-utils-http-error"]
 sources-utils-http-encoding = ["dep:snap", "sources-utils-http-error"]

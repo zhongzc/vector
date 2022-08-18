@@ -3,12 +3,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use vector_core::config::LogNamespace;
 
-use crate::{
+use vector::{
     config::{self, GenerateConfig, Output, SourceConfig, SourceContext, SourceDescription},
     sources,
-    sources::topsql::controller::Controller,
     tls::TlsConfig,
 };
+
+use crate::controller::Controller;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct TopSQLConfig {
@@ -48,7 +49,7 @@ impl GenerateConfig for TopSQLConfig {
 #[async_trait::async_trait]
 #[typetag::serde(name = "topsql")]
 impl SourceConfig for TopSQLConfig {
-    async fn build(&self, cx: SourceContext) -> crate::Result<sources::Source> {
+    async fn build(&self, cx: SourceContext) -> vector::Result<sources::Source> {
         self.validate_tls()?;
 
         let pd_address = self.pd_address.clone();
@@ -87,7 +88,7 @@ impl SourceConfig for TopSQLConfig {
 }
 
 impl TopSQLConfig {
-    fn validate_tls(&self) -> crate::Result<()> {
+    fn validate_tls(&self) -> vector::Result<()> {
         if self.tls.is_none() {
             return Ok(());
         }
@@ -109,7 +110,7 @@ impl TopSQLConfig {
     fn check_key_file(
         tag: &str,
         path: &Option<std::path::PathBuf>,
-    ) -> crate::Result<Option<std::fs::File>> {
+    ) -> vector::Result<Option<std::fs::File>> {
         if path.is_none() {
             return Ok(None);
         }
@@ -126,6 +127,6 @@ mod tests {
 
     #[test]
     fn generate_config() {
-        crate::test_util::test_generate_config::<TopSQLConfig>();
+        vector::test_util::test_generate_config::<TopSQLConfig>();
     }
 }
