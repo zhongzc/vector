@@ -4,6 +4,9 @@ mod store;
 mod tidb;
 mod utils;
 
+#[cfg(test)]
+mod mock;
+
 use std::{collections::HashSet, fs::read};
 
 use snafu::{ResultExt, Snafu};
@@ -173,7 +176,7 @@ mod tests {
             TopologyFetcher::new("localhost:2379".to_owned(), tls_config, &proxy_config)
                 .await
                 .unwrap();
-        let mut components = vec![];
+        let mut components = HashSet::new();
         fetcher.get_up_components(&mut components).await.unwrap();
         println!("{:#?}", components);
     }

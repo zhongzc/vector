@@ -13,9 +13,12 @@ pub enum ParseError {
 pub fn parse_host_port(address: &str) -> Result<(String, u16), ParseError> {
     let uri: http::Uri = address.parse().context(ParseAddressSnafu)?;
 
-    let host = uri.host().ok_or_else(|| ParseError::MissingHost {
-        address: address.to_owned(),
-    })?;
+    let host = uri
+        .host()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| ParseError::MissingHost {
+            address: address.to_owned(),
+        })?;
     let port = uri.port().ok_or_else(|| ParseError::MissingPort {
         address: address.to_owned(),
     })?;
@@ -39,5 +42,14 @@ mod tests {
         let (addr, port) = parse_host_port("https://localhost:2379").unwrap();
         assert_eq!(addr, "localhost");
         assert_eq!(port, 2379);
+
+        let err = parse_host_port("localhost").unwrap_err();
+        assert!(matches!(err, ParseError::MissingPort { .. }));
+
+        let err = parse_host_port(":2379").unwrap_err();
+        assert!(matches!(err, ParseError::MissingHost { .. }));
+
+        let err = parse_host_port("!@#").unwrap_err();
+        assert!(matches!(err, ParseError::ParseAddress { .. }));
     }
 }

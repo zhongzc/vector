@@ -110,3 +110,10 @@ impl<'a> PDTopologyFetcher<'a> {
         Ok(members_resp)
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    #[tokio::test]
+    async fn fetch_health() {}
+}

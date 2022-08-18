@@ -215,7 +215,7 @@ hex = { version = "0.4.3", default-features = false, optional = true }
 sha2 = { version = "0.10.2", default-features = false, optional = true }
 
 # Top SQL
-etcd-client = { version = "0.10", features = ["tls-roots"], optional = true }
+etcd-client = { version = "0.9", features = ["tls-roots"], optional = true }
 
 # VRL Lang
 vrl = { path = "lib/vrl/vrl" }

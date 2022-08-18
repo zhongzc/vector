@@ -64,7 +64,7 @@ impl Controller {
             _ = &mut shutdown => {},
         }
 
-        info!("TopSQL PubSub Controller is shutting down");
+        info!("TopSQL PubSub Controller is shutting down.");
         self.shutdown_all_components().await;
     }
 
@@ -73,10 +73,10 @@ impl Controller {
             let res = self.fetch_and_update().await;
             match res {
                 Ok(has_change) if has_change => {
-                    info!(message = "Topology has changed", latest_components = ?self.components);
+                    info!(message = "Topology has changed.", latest_components = ?self.components);
                 }
                 Err(error) => {
-                    error!(message = "Failed to fetch topology", error = %error);
+                    error!(message = "Failed to fetch topology.", error = %error);
                 }
                 _ => {}
             }
@@ -130,7 +130,7 @@ impl Controller {
                 .run(shutdown_subscriber)
                 .instrument(tracing::info_span!("topsql_source", topsql_source = %component)),
         );
-        info!(message = "Started TopSQL source", topsql_source = %component);
+        info!(message = "Started TopSQL source.", topsql_source = %component);
         self.running_components
             .insert(component.clone(), shutdown_notifier);
         return true;
@@ -144,13 +144,13 @@ impl Controller {
         };
         shutdown_notifier.shutdown();
         shutdown_notifier.wait_for_exit().await;
-        info!(message = "Stopped TopSQL source", topsql_source = %component);
+        info!(message = "Stopped TopSQL source.", topsql_source = %component);
         return true;
     }
 
     async fn shutdown_all_components(self) {
         for (component, shutdown_notifier) in self.running_components {
-            info!(message = "Shutting down TopSQL source", topsql_source = %component);
+            info!(message = "Shutting down TopSQL source.", topsql_source = %component);
             shutdown_notifier.shutdown();
             shutdown_notifier.wait_for_exit().await;
         }
@@ -158,6 +158,6 @@ impl Controller {
         drop(self.shutdown_subscriber);
         self.shutdown_notifier.shutdown();
         self.shutdown_notifier.wait_for_exit().await;
-        info!(message = "All TopSQL sources have been shut down");
+        info!(message = "All TopSQL sources have been shut down.");
     }
 }
