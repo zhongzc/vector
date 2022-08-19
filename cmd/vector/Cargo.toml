@@ -222,3 +222,7 @@ enrichment-tables-benches = ["vector/enrichment-tables-benches"]
 
 [dependencies]
 vector = { path = "../..", default-features = false }
+
+# Extensions
+topsql = { git = "https://github.com/tidbcloud/vector-extensions" }
+vm-import = { git = "https://github.com/tidbcloud/vector-extensions" }

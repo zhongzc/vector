@@ -1558,7 +1558,7 @@ dependencies = [
  "dyn-clone",
  "futures 0.3.21",
  "indoc",
- "lookup",
+ "lookup 0.1.0",
  "memchr",
  "once_cell",
  "ordered-float 3.0.0",
@@ -1573,11 +1573,40 @@ dependencies = [
  "tokio",
  "tokio-util 0.7.1",
  "tracing 0.1.34",
- "value",
- "vector_common",
- "vector_config",
- "vector_config_macros",
- "vector_core",
+ "value 0.1.0",
+ "vector_common 0.1.0",
+ "vector_config 0.1.0",
+ "vector_config_macros 0.1.0",
+ "vector_core 0.1.0",
+]
+
+[[package]]
+name = "codecs"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "avro-rs",
+ "bytes 1.2.0",
+ "chrono",
+ "derivative",
+ "dyn-clone",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "memchr",
+ "once_cell",
+ "ordered-float 3.0.0",
+ "prost",
+ "regex",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "snafu",
+ "tokio-util 0.7.1",
+ "tracing 0.1.34",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config_macros 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_core 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -2054,7 +2083,17 @@ dependencies = [
 name = "datadog-filter"
 version = "0.1.0"
 dependencies = [
- "datadog-search-syntax",
+ "datadog-search-syntax 0.1.0",
+ "dyn-clone",
+ "regex",
+]
+
+[[package]]
+name = "datadog-filter"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "datadog-search-syntax 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
  "dyn-clone",
  "regex",
 ]
@@ -2069,7 +2108,7 @@ dependencies = [
  "criterion",
  "lalrpop",
  "lalrpop-util",
- "lookup",
+ "lookup 0.1.0",
  "nom",
  "once_cell",
  "onig",
@@ -2080,14 +2119,51 @@ dependencies = [
  "thiserror",
  "tracing 0.1.34",
  "tracing-test 0.2.1",
- "value",
- "vector_common",
- "vrl-compiler",
+ "value 0.1.0",
+ "vector_common 0.1.0",
+ "vrl-compiler 0.1.0",
+]
+
+[[package]]
+name = "datadog-grok"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "bytes 1.2.0",
+ "chrono",
+ "chrono-tz",
+ "lalrpop",
+ "lalrpop-util",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "nom",
+ "once_cell",
+ "onig",
+ "ordered-float 3.0.0",
+ "peeking_take_while",
+ "regex",
+ "serde_json",
+ "thiserror",
+ "tracing 0.1.34",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-compiler 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
 name = "datadog-search-syntax"
 version = "0.1.0"
+dependencies = [
+ "itertools 0.10.3",
+ "once_cell",
+ "pest",
+ "pest_derive",
+ "regex",
+]
+
+[[package]]
+name = "datadog-search-syntax"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
 dependencies = [
  "itertools 0.10.3",
  "once_cell",
@@ -2361,9 +2437,22 @@ dependencies = [
  "arc-swap",
  "chrono",
  "dyn-clone",
- "value",
- "vector_common",
- "vrl",
+ "value 0.1.0",
+ "vector_common 0.1.0",
+ "vrl 0.1.0",
+]
+
+[[package]]
+name = "enrichment"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "arc-swap",
+ "chrono",
+ "dyn-clone",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -2488,6 +2577,22 @@ checksum = "64f18991e7bf11e7ffee451b5318b5c1a73c52d0d0ada6e5a3017c8c1ced6a21"
 dependencies = [
  "libc",
  "str-buf",
+]
+
+[[package]]
+name = "etcd-client"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fb8664f6ea68aba5503d42dd1be786b0f1bd9b7972e7f40208c83ef74db91bf"
+dependencies = [
+ "http",
+ "prost",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
+ "tower",
+ "tower-service",
 ]
 
 [[package]]
@@ -4023,8 +4128,25 @@ dependencies = [
  "serde_json",
  "snafu",
  "tracing 0.1.34",
- "vector_config",
- "vector_config_macros",
+ "vector_config 0.1.0",
+ "vector_config_macros 0.1.0",
+]
+
+[[package]]
+name = "lookup"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "inherent",
+ "lalrpop",
+ "lalrpop-util",
+ "once_cell",
+ "quickcheck",
+ "regex",
+ "serde",
+ "snafu",
+ "vector_config 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config_macros 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -5339,6 +5461,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "portpicker"
+version = "1.0.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "rand 0.8.5",
+]
+
+[[package]]
 name = "postgres-openssl"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5521,8 +5651,8 @@ dependencies = [
  "prost-build",
  "prost-types",
  "snafu",
- "value",
- "vector_common",
+ "value 0.1.0",
+ "vector_common 0.1.0",
 ]
 
 [[package]]
@@ -5550,11 +5680,11 @@ name = "proptests"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "lookup",
+ "lookup 0.1.0",
  "ordered-float 3.0.0",
  "proptest",
- "vrl-diagnostic",
- "vrl-parser",
+ "vrl-diagnostic 0.1.0",
+ "vrl-parser 0.1.0",
 ]
 
 [[package]]
@@ -7611,6 +7741,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "topsql"
+version = "0.0.1"
+source = "git+https://github.com/tidbcloud/vector-extensions#f7f54d1bdd771bbdb7df426aa33de8336b5faff7"
+dependencies = [
+ "async-recursion",
+ "async-trait",
+ "bytes 1.2.0",
+ "chrono",
+ "etcd-client",
+ "futures 0.3.21",
+ "hex",
+ "http",
+ "hyper",
+ "inventory",
+ "ordered-float 3.0.0",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "serde",
+ "serde_json",
+ "snafu",
+ "tokio",
+ "tokio-openssl",
+ "tokio-stream",
+ "toml",
+ "tonic",
+ "tonic-build",
+ "tracing 0.1.34",
+ "tracing-futures 0.2.5",
+ "typetag",
+ "vector 0.24.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_core 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+]
+
+[[package]]
 name = "tower"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7769,6 +7935,16 @@ dependencies = [
  "dashmap",
  "mock_instant",
  "tracing 0.1.34",
+ "tracing-core 0.1.28",
+ "tracing-subscriber 0.3.15",
+]
+
+[[package]]
+name = "tracing-limit"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "dashmap",
  "tracing-core 0.1.28",
  "tracing-subscriber 0.3.15",
 ]
@@ -8241,10 +8417,29 @@ dependencies = [
  "bytes 1.2.0",
  "chrono",
  "indoc",
- "lookup",
+ "lookup 0.1.0",
  "mlua",
  "ordered-float 3.0.0",
  "quickcheck",
+ "regex",
+ "serde",
+ "serde_json",
+ "snafu",
+ "toml",
+ "tracing 0.1.34",
+]
+
+[[package]]
+name = "value"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "async-graphql",
+ "bytes 1.2.0",
+ "chrono",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "mlua",
+ "ordered-float 3.0.0",
  "regex",
  "serde",
  "serde_json",
@@ -8307,20 +8502,20 @@ dependencies = [
  "chrono",
  "cidr-utils",
  "clap 3.2.14",
- "codecs",
+ "codecs 0.1.0",
  "colored",
  "console-subscriber",
  "criterion",
  "crossterm 0.24.0",
  "csv",
- "datadog-filter",
- "datadog-search-syntax",
+ "datadog-filter 0.1.0",
+ "datadog-search-syntax 0.1.0",
  "derivative",
  "dirs-next",
  "dnsmsg-parser",
  "dyn-clone",
  "encoding_rs",
- "enrichment",
+ "enrichment 0.1.0",
  "exitcode",
  "fakedata",
  "file-source",
@@ -8352,7 +8547,7 @@ dependencies = [
  "libc",
  "listenfd",
  "logfmt",
- "lookup",
+ "lookup 0.1.0",
  "lru",
  "maxminddb",
  "md-5",
@@ -8374,7 +8569,7 @@ dependencies = [
  "ordered-float 3.0.0",
  "percent-encoding",
  "pin-project",
- "portpicker",
+ "portpicker 1.0.0",
  "postgres-openssl",
  "pretty_assertions",
  "prometheus-parser",
@@ -8429,7 +8624,7 @@ dependencies = [
  "tracing 0.1.34",
  "tracing-core 0.1.28",
  "tracing-futures 0.2.5",
- "tracing-limit",
+ "tracing-limit 0.1.0",
  "tracing-subscriber 0.3.15",
  "tracing-tower",
  "trust-dns-proto",
@@ -8437,21 +8632,116 @@ dependencies = [
  "typetag",
  "url",
  "uuid 1.1.2",
- "value",
+ "value 0.1.0",
  "vector-api-client",
- "vector-vrl-functions",
- "vector_buffers",
- "vector_common",
- "vector_config",
- "vector_config_common",
- "vector_config_macros",
- "vector_core",
- "vrl",
+ "vector-vrl-functions 0.1.0",
+ "vector_buffers 0.1.0",
+ "vector_common 0.1.0",
+ "vector_config 0.1.0",
+ "vector_config_common 0.1.0",
+ "vector_config_macros 0.1.0",
+ "vector_core 0.1.0",
+ "vrl 0.1.0",
  "vrl-cli",
- "vrl-stdlib",
+ "vrl-stdlib 0.1.0",
  "warp",
  "windows-service",
  "wiremock",
+]
+
+[[package]]
+name = "vector"
+version = "0.24.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "atty",
+ "axum",
+ "bollard",
+ "bytes 1.2.0",
+ "bytesize",
+ "chrono",
+ "cidr-utils",
+ "clap 3.2.14",
+ "codecs 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "colored",
+ "datadog-filter 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "datadog-search-syntax 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "derivative",
+ "dyn-clone",
+ "encoding_rs",
+ "enrichment 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "exitcode",
+ "flate2",
+ "futures 0.3.21",
+ "futures-util",
+ "glob",
+ "headers",
+ "hostname",
+ "http",
+ "http-body",
+ "hyper",
+ "hyper-openssl",
+ "hyper-proxy",
+ "indexmap",
+ "indoc",
+ "inventory",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "metrics",
+ "metrics-tracing-context",
+ "nix 0.24.2",
+ "notify",
+ "once_cell",
+ "openssl",
+ "openssl-probe",
+ "openssl-src",
+ "ordered-float 3.0.0",
+ "percent-encoding",
+ "pin-project",
+ "portpicker 1.0.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "prost",
+ "rand 0.8.5",
+ "rand_distr",
+ "regex",
+ "schannel",
+ "security-framework",
+ "serde",
+ "serde-toml-merge",
+ "serde_json",
+ "serde_yaml",
+ "smallvec",
+ "snafu",
+ "socket2",
+ "stream-cancel",
+ "strip-ansi-escapes",
+ "tokio",
+ "tokio-openssl",
+ "tokio-stream",
+ "tokio-util 0.7.1",
+ "toml",
+ "tower",
+ "tracing 0.1.34",
+ "tracing-core 0.1.28",
+ "tracing-futures 0.2.5",
+ "tracing-limit 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "tracing-subscriber 0.3.15",
+ "tracing-tower",
+ "typetag",
+ "url",
+ "uuid 1.1.2",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector-vrl-functions 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_buffers 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config_macros 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_core 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-stdlib 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "warp",
+ "windows-service",
 ]
 
 [[package]]
@@ -8478,16 +8768,28 @@ dependencies = [
 name = "vector-bin"
 version = "0.24.0"
 dependencies = [
- "vector",
+ "topsql",
+ "vector 0.24.0",
+ "vm-import",
 ]
 
 [[package]]
 name = "vector-vrl-functions"
 version = "0.1.0"
 dependencies = [
- "lookup",
- "value",
- "vrl",
+ "lookup 0.1.0",
+ "value 0.1.0",
+ "vrl 0.1.0",
+]
+
+[[package]]
+name = "vector-vrl-functions"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -8531,7 +8833,38 @@ dependencies = [
  "tracing 0.1.34",
  "tracing-fluent-assertions",
  "tracing-subscriber 0.3.15",
- "vector_common",
+ "vector_common 0.1.0",
+]
+
+[[package]]
+name = "vector_buffers"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "async-recursion",
+ "async-stream",
+ "async-trait",
+ "bytecheck",
+ "bytes 1.2.0",
+ "crc32fast",
+ "crossbeam-queue",
+ "crossbeam-utils",
+ "db-key",
+ "fslock",
+ "futures 0.3.21",
+ "leveldb",
+ "memmap2",
+ "metrics",
+ "num-traits",
+ "parking_lot",
+ "pin-project",
+ "rkyv",
+ "serde",
+ "snafu",
+ "tokio",
+ "tokio-util 0.7.1",
+ "tracing 0.1.34",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -8556,8 +8889,35 @@ dependencies = [
  "stream-cancel",
  "tokio",
  "tracing 0.1.34",
- "value",
- "vector_config",
+ "value 0.1.0",
+ "vector_config 0.1.0",
+]
+
+[[package]]
+name = "vector_common"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "async-stream",
+ "bytes 1.2.0",
+ "chrono",
+ "chrono-tz",
+ "crossbeam-utils",
+ "derivative",
+ "futures 0.3.21",
+ "metrics",
+ "nom",
+ "ordered-float 3.0.0",
+ "pin-project",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "snafu",
+ "stream-cancel",
+ "tokio",
+ "tracing 0.1.34",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -8572,13 +8932,42 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
- "vector_config_common",
- "vector_config_macros",
+ "vector_config_common 0.1.0",
+ "vector_config_macros 0.1.0",
+]
+
+[[package]]
+name = "vector_config"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "encoding_rs",
+ "indexmap",
+ "no-proxy",
+ "num-traits",
+ "schemars",
+ "serde",
+ "serde_json",
+ "toml",
+ "vector_config_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config_macros 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
 name = "vector_config_common"
 version = "0.1.0"
+dependencies = [
+ "darling 0.13.4",
+ "proc-macro2",
+ "quote",
+ "schemars",
+ "syn",
+]
+
+[[package]]
+name = "vector_config_common"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
 dependencies = [
  "darling 0.13.4",
  "proc-macro2",
@@ -8597,8 +8986,21 @@ dependencies = [
  "serde",
  "serde_derive_internals",
  "syn",
- "vector_config",
- "vector_config_common",
+ "vector_config 0.1.0",
+ "vector_config_common 0.1.0",
+]
+
+[[package]]
+name = "vector_config_macros"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "darling 0.13.4",
+ "proc-macro2",
+ "quote",
+ "serde_derive_internals",
+ "syn",
+ "vector_config_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -8615,7 +9017,7 @@ dependencies = [
  "crossbeam-utils",
  "db-key",
  "dyn-clone",
- "enrichment",
+ "enrichment 0.1.0",
  "enumflags2",
  "env-test-util",
  "float_eq",
@@ -8625,7 +9027,7 @@ dependencies = [
  "http",
  "hyper-proxy",
  "indexmap",
- "lookup",
+ "lookup 0.1.0",
  "metrics",
  "metrics-tracing-context",
  "metrics-util",
@@ -8662,12 +9064,66 @@ dependencies = [
  "twox-hash",
  "typetag",
  "url",
- "value",
- "vector_buffers",
- "vector_common",
- "vector_config",
- "vector_config_macros",
- "vrl",
+ "value 0.1.0",
+ "vector_buffers 0.1.0",
+ "vector_common 0.1.0",
+ "vector_config 0.1.0",
+ "vector_config_macros 0.1.0",
+ "vrl 0.1.0",
+]
+
+[[package]]
+name = "vector_core"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "async-trait",
+ "bitmask-enum",
+ "bytes 1.2.0",
+ "chrono",
+ "crossbeam-utils",
+ "dyn-clone",
+ "enrichment 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "enumflags2",
+ "float_eq",
+ "futures 0.3.21",
+ "futures-util",
+ "headers",
+ "http",
+ "hyper-proxy",
+ "indexmap",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "metrics",
+ "metrics-tracing-context",
+ "metrics-util",
+ "no-proxy",
+ "once_cell",
+ "ordered-float 3.0.0",
+ "pin-project",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "regex",
+ "serde",
+ "serde_json",
+ "snafu",
+ "tokio",
+ "tokio-util 0.7.1",
+ "toml",
+ "tower",
+ "tracing 0.1.34",
+ "tracing-core 0.1.28",
+ "tracing-log",
+ "tracing-subscriber 0.3.15",
+ "twox-hash",
+ "typetag",
+ "url",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_buffers 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config_macros 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -8675,6 +9131,27 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+
+[[package]]
+name = "vm-import"
+version = "0.0.1"
+source = "git+https://github.com/tidbcloud/vector-extensions#f7f54d1bdd771bbdb7df426aa33de8336b5faff7"
+dependencies = [
+ "async-trait",
+ "bytes 1.2.0",
+ "flate2",
+ "futures-util",
+ "http",
+ "hyper",
+ "inventory",
+ "serde",
+ "serde_json",
+ "toml",
+ "tracing 0.1.34",
+ "typetag",
+ "vector 0.24.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_core 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+]
 
 [[package]]
 name = "void"
@@ -8689,16 +9166,32 @@ dependencies = [
  "bytes 1.2.0",
  "criterion",
  "indoc",
- "lookup",
+ "lookup 0.1.0",
  "ordered-float 3.0.0",
  "serde_json",
- "value",
- "vector_common",
- "vrl-compiler",
- "vrl-core",
- "vrl-diagnostic",
- "vrl-parser",
- "vrl-stdlib",
+ "value 0.1.0",
+ "vector_common 0.1.0",
+ "vrl-compiler 0.1.0",
+ "vrl-core 0.1.0",
+ "vrl-diagnostic 0.1.0",
+ "vrl-parser 0.1.0",
+ "vrl-stdlib 0.1.0",
+]
+
+[[package]]
+name = "vrl"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "bytes 1.2.0",
+ "indoc",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "ordered-float 3.0.0",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-compiler 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-diagnostic 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-parser 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -8708,19 +9201,19 @@ dependencies = [
  "clap 3.2.14",
  "exitcode",
  "indoc",
- "lookup",
+ "lookup 0.1.0",
  "once_cell",
  "prettytable-rs",
  "regex",
  "rustyline",
  "serde_json",
  "thiserror",
- "value",
- "vector-vrl-functions",
- "vector_common",
- "vrl",
- "vrl-core",
- "vrl-stdlib",
+ "value 0.1.0",
+ "vector-vrl-functions 0.1.0",
+ "vector_common 0.1.0",
+ "vrl 0.1.0",
+ "vrl-core 0.1.0",
+ "vrl-stdlib 0.1.0",
  "webbrowser",
 ]
 
@@ -8735,33 +9228,77 @@ dependencies = [
  "dyn-clone",
  "indoc",
  "lalrpop-util",
- "lookup",
+ "lookup 0.1.0",
  "ordered-float 3.0.0",
  "paste",
  "regex",
  "serde",
  "thiserror",
- "value",
- "vector_common",
- "vector_config",
- "vector_config_macros",
- "vrl-core",
- "vrl-diagnostic",
- "vrl-parser",
+ "value 0.1.0",
+ "vector_common 0.1.0",
+ "vector_config 0.1.0",
+ "vector_config_macros 0.1.0",
+ "vrl-core 0.1.0",
+ "vrl-diagnostic 0.1.0",
+ "vrl-parser 0.1.0",
+]
+
+[[package]]
+name = "vrl-compiler"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "anymap",
+ "bytes 1.2.0",
+ "chrono",
+ "dyn-clone",
+ "lalrpop-util",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "ordered-float 3.0.0",
+ "paste",
+ "regex",
+ "serde",
+ "thiserror",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_config_macros 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-core 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-diagnostic 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-parser 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
 name = "vrl-core"
 version = "0.1.0"
 dependencies = [
- "lookup",
- "value",
- "vrl-diagnostic",
+ "lookup 0.1.0",
+ "value 0.1.0",
+ "vrl-diagnostic 0.1.0",
+]
+
+[[package]]
+name = "vrl-core"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl-diagnostic 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
 name = "vrl-diagnostic"
 version = "0.1.0"
+dependencies = [
+ "codespan-reporting",
+ "termcolor",
+]
+
+[[package]]
+name = "vrl-diagnostic"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
 dependencies = [
  "codespan-reporting",
  "termcolor",
@@ -8774,12 +9311,26 @@ dependencies = [
  "arbitrary",
  "lalrpop",
  "lalrpop-util",
- "lookup",
+ "lookup 0.1.0",
  "ordered-float 3.0.0",
  "paste",
  "test-case",
  "thiserror",
- "vrl-diagnostic",
+ "vrl-diagnostic 0.1.0",
+]
+
+[[package]]
+name = "vrl-parser"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "lalrpop",
+ "lalrpop-util",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "ordered-float 3.0.0",
+ "paste",
+ "thiserror",
+ "vrl-diagnostic 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
 ]
 
 [[package]]
@@ -8798,15 +9349,15 @@ dependencies = [
  "criterion",
  "csv",
  "ctr",
- "datadog-filter",
- "datadog-grok",
- "datadog-search-syntax",
+ "datadog-filter 0.1.0",
+ "datadog-grok 0.1.0",
+ "datadog-search-syntax 0.1.0",
  "dns-lookup",
  "grok",
  "hex",
  "hostname",
  "indexmap",
- "lookup",
+ "lookup 0.1.0",
  "md-5",
  "nom",
  "ofb",
@@ -8829,10 +9380,60 @@ dependencies = [
  "url",
  "utf8-width",
  "uuid 1.1.2",
- "value",
- "vector_common",
- "vrl",
- "vrl-core",
+ "value 0.1.0",
+ "vector_common 0.1.0",
+ "vrl 0.1.0",
+ "vrl-core 0.1.0",
+ "woothee",
+]
+
+[[package]]
+name = "vrl-stdlib"
+version = "0.1.0"
+source = "git+https://github.com/zhongzc/vector?branch=extendability#b160adfa453d394209a9a8201f8c831686537e1e"
+dependencies = [
+ "aes",
+ "base64",
+ "bytes 1.2.0",
+ "cbc",
+ "cfb-mode",
+ "chrono",
+ "cidr-utils",
+ "csv",
+ "ctr",
+ "datadog-filter 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "datadog-grok 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "datadog-search-syntax 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "dns-lookup",
+ "grok",
+ "hex",
+ "hostname",
+ "indexmap",
+ "lookup 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "md-5",
+ "nom",
+ "ofb",
+ "once_cell",
+ "percent-encoding",
+ "rand 0.8.5",
+ "regex",
+ "roxmltree",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "sha-1 0.10.0",
+ "sha2 0.10.2",
+ "sha3",
+ "strip-ansi-escapes",
+ "syslog_loose",
+ "tracing 0.1.34",
+ "uaparser",
+ "url",
+ "utf8-width",
+ "uuid 1.1.2",
+ "value 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vector_common 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
+ "vrl 0.1.0 (git+https://github.com/zhongzc/vector?branch=extendability)",
  "woothee",
 ]
 
@@ -8844,20 +9445,20 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "clap 3.2.14",
- "enrichment",
+ "enrichment 0.1.0",
  "glob",
- "lookup",
+ "lookup 0.1.0",
  "prettydiff",
  "regex",
  "serde",
  "serde_json",
  "tikv-jemallocator",
  "tracing-subscriber 0.3.15",
- "value",
- "vector-vrl-functions",
- "vector_common",
- "vrl",
- "vrl-stdlib",
+ "value 0.1.0",
+ "vector-vrl-functions 0.1.0",
+ "vector_common 0.1.0",
+ "vrl 0.1.0",
+ "vrl-stdlib 0.1.0",
 ]
 
 [[package]]
