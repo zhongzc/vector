@@ -1,7 +1,10 @@
 #![deny(warnings)]
 
-extern crate topsql;
 extern crate vector;
+
+// Extensions
+extern crate topsql;
+extern crate vm_import;
 
 use vector::app::Application;
 
