@@ -456,7 +456,9 @@ sources-logs = [
   "sources-http",
   "sources-internal_logs",
   "sources-journald",
-  "sources-kafka",
+  ## kafka scrictly breaks the build so
+  ## let's give it up for now
+  # "sources-kafka",
   "sources-kubernetes_logs",
   "sources-logstash",
   "sources-nats",
@@ -601,7 +603,9 @@ sinks-logs = [
   "sinks-http",
   "sinks-humio",
   "sinks-influxdb",
-  "sinks-kafka",
+  ## kafka scrictly breaks the build so
+  ## let's give it up for now
+  # "sinks-kafka",
   "sinks-logdna",
   "sinks-loki",
   "sinks-nats",
@@ -623,7 +627,9 @@ sinks-metrics = [
   "sinks-datadog_metrics",
   "sinks-humio",
   "sinks-influxdb",
-  "sinks-kafka",
+  ## kafka scrictly breaks the build so
+  ## let's give it up for now
+  # "sinks-kafka",
   "sinks-prometheus",
   "sinks-sematext",
   "sinks-statsd",
