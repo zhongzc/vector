@@ -89,6 +89,8 @@ impl Application {
                     format!("rdkafka={}", level),
                     format!("buffers={}", level),
                     format!("kube={}", level),
+                    format!("topsql={}", level),
+                    format!("vm_import={}", level),
                 ]
                 .join(","),
             });
