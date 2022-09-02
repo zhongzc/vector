@@ -85,7 +85,7 @@ pub(crate) mod tcp;
 pub mod template;
 pub mod test_util;
 #[allow(unreachable_pub)]
-pub(crate) mod tls;
+pub mod tls;
 #[cfg(feature = "api-client")]
 #[allow(unreachable_pub)]
 pub(crate) mod top;

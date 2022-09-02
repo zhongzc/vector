@@ -313,9 +313,11 @@ pub(crate) use self::websocket::*;
 #[cfg(windows)]
 pub(crate) use self::windows::*;
 pub(crate) use self::{
-    adaptive_concurrency::*, batch::*, common::*, conditions::*, encoding_transcode::*,
-    heartbeat::*, open::*, process::*, socket::*, tcp::*, template::*, udp::*,
+    adaptive_concurrency::*, batch::*, conditions::*, encoding_transcode::*, heartbeat::*, open::*,
+    process::*, socket::*, tcp::*, template::*, udp::*,
 };
+
+pub use self::common::*;
 
 // this version won't be needed once all `InternalEvent`s implement `name()`
 #[cfg(test)]
