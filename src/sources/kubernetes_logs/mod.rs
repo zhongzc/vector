@@ -40,7 +40,7 @@ use crate::{
         KubernetesLogsEventNodeAnnotationError, KubernetesLogsEventsReceived,
         KubernetesLogsPodInfo, StreamClosedError,
     },
-    kubernetes::custom_reflector,
+    kubernetes::{custom_reflector, meta_cache::MetaCache},
     shutdown::ShutdownSignal,
     sources,
     transforms::{FunctionTransform, OutputBuffer, TaskTransform},
@@ -350,6 +350,7 @@ impl Source {
         let mut reflectors = Vec::new();
 
         let pods = Api::<Pod>::all(client.clone());
+
         let pod_watcher = watcher(
             pods,
             ListParams {
@@ -360,9 +361,11 @@ impl Source {
         );
         let pod_store_w = reflector::store::Writer::default();
         let pod_state = pod_store_w.as_reader();
+        let pod_cacher = MetaCache::new();
 
         reflectors.push(tokio::spawn(custom_reflector(
             pod_store_w,
+            pod_cacher,
             pod_watcher,
             delay_deletion,
         )));
@@ -379,9 +382,11 @@ impl Source {
         );
         let ns_store_w = reflector::store::Writer::default();
         let ns_state = ns_store_w.as_reader();
+        let ns_cacher = MetaCache::new();
 
         reflectors.push(tokio::spawn(custom_reflector(
             ns_store_w,
+            ns_cacher,
             ns_watcher,
             delay_deletion,
         )));
@@ -398,9 +403,11 @@ impl Source {
         );
         let node_store_w = reflector::store::Writer::default();
         let node_state = node_store_w.as_reader();
+        let node_cacher = MetaCache::new();
 
         reflectors.push(tokio::spawn(custom_reflector(
             node_store_w,
+            node_cacher,
             node_watcher,
             delay_deletion,
         )));
