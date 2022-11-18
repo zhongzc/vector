@@ -24,6 +24,8 @@ pub mod eventstoredb_metrics;
 pub mod exec;
 #[cfg(feature = "sources-file")]
 pub mod file;
+#[cfg(feature = "sources-filename")]
+pub mod filename;
 #[cfg(feature = "sources-fluent")]
 pub mod fluent;
 #[cfg(feature = "sources-gcp_pubsub")]

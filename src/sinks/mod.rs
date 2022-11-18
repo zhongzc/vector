@@ -90,6 +90,9 @@ pub mod vector;
 #[cfg(feature = "sinks-websocket")]
 pub mod websocket;
 
+#[cfg(feature = "sinks-aws_s3_upload_file")]
+pub mod aws_s3_upload_file;
+
 pub use vector_core::sink::VectorSink;
 
 pub type Healthcheck = BoxFuture<'static, crate::Result<()>>;
