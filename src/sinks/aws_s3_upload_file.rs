@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{fs, io};
 
-use aws_sdk_s3::model::{CompletedMultipartUpload, CompletedPart};
+use aws_sdk_s3::model::{CompletedMultipartUpload, CompletedPart, MultipartUpload, Part};
 use aws_sdk_s3::types::ByteStream;
 use aws_sdk_s3::Client as S3Client;
 use chrono::{DateTime, Utc};
@@ -33,7 +33,6 @@ use crate::{
     tls::TlsConfig,
 };
 
-const S3_PUT_OBJECT_SIZE_LIMIT: usize = 5 * 1024 * 1024;
 // limit the chunk size to 8MB to avoid OOM
 const S3_MULTIPART_UPLOAD_CHUNK_SIZE: usize = 8 * 1024 * 1024;
 const S3_MULTIPART_UPLOAD_MAX_CHUNKS: usize = 10000;
@@ -202,433 +201,6 @@ impl S3UploadFileSink {
     async fn file_modified_time(filename: &str) -> io::Result<SystemTime> {
         tokio::fs::metadata(filename).await?.modified()
     }
-
-    async fn upload(
-        client: S3Client,
-        bucket: &str,
-        options: &S3Options,
-        upload_key: &UploadKey,
-        buffer: &mut Vec<u8>,
-    ) -> io::Result<UploadResponse> {
-        if !Self::need_upload(&client, bucket, &upload_key, buffer).await? {
-            return Ok(UploadResponse {
-                count: 1,
-                events_byte_size: 0,
-            });
-        }
-        let n = Self::do_upload(&client, bucket, options, upload_key, buffer).await?;
-        Ok(UploadResponse {
-            count: 1,
-            events_byte_size: n,
-        })
-    }
-
-    async fn need_upload(
-        client: &S3Client,
-        bucket: &str,
-        upload_key: &UploadKey,
-        buffer: &mut Vec<u8>,
-    ) -> io::Result<bool> {
-        if let Some(object_etag) =
-            Self::fetch_object_etag(&client, bucket, &upload_key.object_key).await
-        {
-            let file_etag = Self::calc_file_etag(&upload_key.filename, buffer).await?;
-            Ok(object_etag != file_etag)
-        } else {
-            Ok(true)
-        }
-    }
-
-    async fn do_upload(
-        client: &S3Client,
-        bucket: &str,
-        options: &S3Options,
-        upload_key: &UploadKey,
-        buffer: &mut Vec<u8>,
-    ) -> io::Result<usize> {
-        buffer.clear();
-        let mut file = File::open(&upload_key.filename).await?;
-
-        let n = (&mut file)
-            .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
-            .read_to_end(buffer)
-            .await?;
-        if n <= S3_PUT_OBJECT_SIZE_LIMIT {
-            Self::put_object(client, bucket, options, upload_key, buffer).await
-        } else {
-            Self::multipart_upload(client, bucket, options, upload_key, file, buffer).await
-        }
-    }
-
-    async fn put_object(
-        client: &S3Client,
-        bucket: &str,
-        options: &S3Options,
-        upload_key: &UploadKey,
-        body: &[u8],
-    ) -> io::Result<usize> {
-        let content_md5 = base64::encode(md5::Md5::digest(body));
-        let tagging = options.tags.as_ref().map(|tags| {
-            let mut tagging = url::form_urlencoded::Serializer::new(String::new());
-            for (p, v) in tags {
-                tagging.append_pair(&p, &v);
-            }
-            tagging.finish()
-        });
-
-        let _ = client
-            .put_object()
-            .body(ByteStream::from(Vec::from(body)))
-            .bucket(bucket)
-            .key(&upload_key.object_key)
-            .set_content_encoding(options.content_encoding.clone())
-            .set_content_type(options.content_type.clone())
-            .set_acl(options.acl.map(Into::into))
-            .set_grant_full_control(options.grant_full_control.clone())
-            .set_grant_read(options.grant_read.clone())
-            .set_grant_read_acp(options.grant_read_acp.clone())
-            .set_grant_write_acp(options.grant_write_acp.clone())
-            .set_server_side_encryption(options.server_side_encryption.map(Into::into))
-            .set_ssekms_key_id(options.ssekms_key_id.clone())
-            .set_storage_class(options.storage_class.map(Into::into))
-            .set_tagging(tagging)
-            .content_md5(content_md5)
-            .send()
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        Ok(body.len())
-    }
-
-    async fn multipart_upload(
-        client: &S3Client,
-        bucket: &str,
-        options: &S3Options,
-        upload_key: &UploadKey,
-        file: File,
-        buffer: &mut Vec<u8>,
-    ) -> io::Result<usize> {
-        let (upload_id, mut part_number, mut file, mut completed_parts) =
-            Self::create_or_recover_multipart_upload(
-                client, bucket, options, upload_key, file, buffer,
-            )
-            .await?;
-
-        let mut uploaded_size = 0;
-        loop {
-            if buffer.is_empty() {
-                break;
-            }
-
-            if part_number > S3_MULTIPART_UPLOAD_MAX_CHUNKS as i32 {
-                return Err(io::Error::new(io::ErrorKind::Other, "file is too large"));
-            }
-
-            let bytes: &[u8] = buffer;
-            let content_md5 = base64::encode(md5::Md5::digest(bytes));
-
-            let response = client
-                .upload_part()
-                .body(ByteStream::from(buffer.clone()))
-                .bucket(bucket)
-                .key(&upload_key.object_key)
-                .part_number(part_number)
-                .upload_id(&upload_id)
-                .content_md5(content_md5)
-                .send()
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-            completed_parts.push(
-                CompletedPart::builder()
-                    .e_tag(response.e_tag.unwrap_or_default())
-                    .part_number(part_number)
-                    .build(),
-            );
-            uploaded_size += buffer.len();
-
-            buffer.clear();
-            (&mut file)
-                .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
-                .read_to_end(buffer)
-                .await?;
-            part_number += 1;
-        }
-
-        let completed_multipart_upload = CompletedMultipartUpload::builder()
-            .set_parts(Some(completed_parts))
-            .build();
-
-        let _ = client
-            .complete_multipart_upload()
-            .bucket(bucket)
-            .key(&upload_key.object_key)
-            .multipart_upload(completed_multipart_upload)
-            .upload_id(upload_id)
-            .send()
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        Ok(uploaded_size)
-    }
-
-    async fn create_or_recover_multipart_upload(
-        client: &S3Client,
-        bucket: &str,
-        options: &S3Options,
-        upload_key: &UploadKey,
-        mut file: File,
-        buffer: &mut Vec<u8>,
-    ) -> io::Result<(String, i32, File, Vec<CompletedPart>)> {
-        let uploads = client
-            .list_multipart_uploads()
-            .bucket(&upload_key.bucket)
-            .prefix(&upload_key.object_key)
-            .send()
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        // if exists processing multipart upload, recover it
-        let mut uploads = match uploads.uploads {
-            Some(uploads) if !uploads.is_empty() => uploads,
-            _ => {
-                let upload_id =
-                    Self::create_multipart_upload(client, bucket, options, upload_key).await?;
-                return Ok((upload_id, 1, file, Vec::new()));
-            }
-        };
-
-        // only recover latest multipart upload
-        uploads.sort_unstable_by_key(|a| {
-            a.initiated
-                .as_ref()
-                .map(|a| a.as_nanos())
-                .unwrap_or_default()
-        });
-        let upload = uploads.pop().unwrap();
-
-        // abort older uploads
-        for upload in uploads {
-            let upload_id = upload.upload_id.unwrap_or_default();
-            info!(
-                message = "Cleaned up unused multipart upload",
-                filename = %upload_key.filename,
-                %bucket,
-                key = %upload_key.object_key,
-                %upload_id,
-            );
-            Self::abort_multipart_upload(client, bucket, &upload_key.object_key, &upload_id)
-                .await?;
-        }
-
-        let upload_id = upload.upload_id.unwrap_or_default();
-        // verify the upload
-        let parts_response = client
-            .list_parts()
-            .bucket(&upload_key.bucket)
-            .key(&upload_key.object_key)
-            .upload_id(&upload_id)
-            .send()
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        let mut parts = match parts_response.parts {
-            Some(parts) if !parts.is_empty() => parts,
-            _ => return Ok((upload_id, 1, file, Vec::new())),
-        };
-
-        let mut expected_part_number = 1;
-        let mut completed_parts = Vec::new();
-        let mut recovered_part_size = 0;
-        let mut should_abort = false;
-        parts.sort_unstable_by_key(|p| p.part_number);
-        for part in parts {
-            // check part number
-            if part.part_number != expected_part_number {
-                warn!(
-                    message = "Unexpected part number, aborted multipart upload.",
-                    filename = %upload_key.filename,
-                    %bucket,
-                    key = %upload_key.object_key,
-                    part_number = %part.part_number,
-                    %expected_part_number,
-                    %upload_id,
-                );
-                should_abort = true;
-                break;
-            }
-
-            // check etag
-            let bytes: &[u8] = buffer;
-            let expected_part_etag = hex::encode(md5::Md5::digest(bytes));
-            let part_etag = Self::trim_etag(part.e_tag.clone().unwrap_or_default());
-            if part_etag != expected_part_etag {
-                warn!(
-                    message = "Unexpected part etag, aborted multipart upload.",
-                    filename = %upload_key.filename,
-                    %bucket,
-                    key = %upload_key.object_key,
-                    %part_etag,
-                    %expected_part_etag,
-                    %upload_id,
-                );
-                should_abort = true;
-                break;
-            }
-
-            completed_parts.push(
-                CompletedPart::builder()
-                    .e_tag(part.e_tag.unwrap_or_default())
-                    .part_number(part.part_number)
-                    .build(),
-            );
-            expected_part_number += 1;
-            recovered_part_size += part.size;
-            buffer.clear();
-            (&mut file)
-                .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
-                .read_to_end(buffer)
-                .await?;
-        }
-
-        if should_abort {
-            Self::abort_multipart_upload(client, bucket, &upload_key.object_key, &upload_id)
-                .await?;
-            let upload_id =
-                Self::create_multipart_upload(client, bucket, options, upload_key).await?;
-            // re-open the file because it may be read
-            let mut file = File::open(&upload_key.filename).await?;
-            buffer.clear();
-            (&mut file)
-                .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
-                .read_to_end(buffer)
-                .await?;
-            Ok((upload_id, 1, file, Vec::new()))
-        } else {
-            info!(
-                message = "Resumed upload",
-                filename = %upload_key.filename,
-                %bucket,
-                key = %upload_key.object_key,
-                %recovered_part_size,
-                %upload_id,
-            );
-            Ok((upload_id, expected_part_number, file, completed_parts))
-        }
-    }
-
-    async fn create_multipart_upload(
-        client: &S3Client,
-        bucket: &str,
-        options: &S3Options,
-        upload_key: &UploadKey,
-    ) -> io::Result<String> {
-        let tagging = options.tags.as_ref().map(|tags| {
-            let mut tagging = url::form_urlencoded::Serializer::new(String::new());
-            for (p, v) in tags {
-                tagging.append_pair(&p, &v);
-            }
-            tagging.finish()
-        });
-
-        let response = client
-            .create_multipart_upload()
-            .bucket(bucket)
-            .key(&upload_key.object_key)
-            .set_content_encoding(options.content_encoding.clone())
-            .set_content_type(options.content_type.clone())
-            .set_acl(options.acl.map(Into::into))
-            .set_grant_full_control(options.grant_full_control.clone())
-            .set_grant_read(options.grant_read.clone())
-            .set_grant_read_acp(options.grant_read_acp.clone())
-            .set_grant_write_acp(options.grant_write_acp.clone())
-            .set_server_side_encryption(options.server_side_encryption.map(Into::into))
-            .set_ssekms_key_id(options.ssekms_key_id.clone())
-            .set_storage_class(options.storage_class.map(Into::into))
-            .set_tagging(tagging)
-            .send()
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        let upload_id = match response.upload_id() {
-            Some(upload_id) => upload_id,
-            None => return Err(io::Error::new(io::ErrorKind::Other, "upload_id not found")),
-        };
-
-        Ok(upload_id.to_owned())
-    }
-
-    async fn abort_multipart_upload(
-        client: &S3Client,
-        bucket: &str,
-        key: &str,
-        upload_id: &str,
-    ) -> io::Result<()> {
-        let _ = client
-            .abort_multipart_upload()
-            .bucket(bucket)
-            .key(key)
-            .upload_id(upload_id)
-            .send()
-            .await
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        Ok(())
-    }
-
-    async fn fetch_object_etag(client: &S3Client, bucket: &str, key: &str) -> Option<String> {
-        client
-            .head_object()
-            .bucket(bucket)
-            .key(key)
-            .send()
-            .await
-            .map(|res| res.e_tag)
-            .ok()
-            .flatten()
-            .map(Self::trim_etag)
-    }
-
-    async fn calc_file_etag(filename: &str, chunk: &mut Vec<u8>) -> io::Result<String> {
-        let mut chunk_count = 0;
-        let mut concat_md5 = Vec::new();
-        let mut file = File::open(filename).await?;
-        loop {
-            chunk.clear();
-            let read_size = (&mut file)
-                .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
-                .read_to_end(chunk)
-                .await?;
-            if read_size == 0 {
-                break;
-            }
-            chunk_count += 1;
-            let bytes: &[u8] = chunk;
-            let digest: [u8; 16] = md5::Md5::digest(bytes).into();
-            concat_md5.extend_from_slice(&digest);
-            if read_size < S3_MULTIPART_UPLOAD_CHUNK_SIZE {
-                break;
-            }
-            if chunk_count > S3_MULTIPART_UPLOAD_MAX_CHUNKS {
-                return Err(io::Error::new(io::ErrorKind::Other, "file is too large"));
-            }
-        }
-
-        Ok(if chunk_count > 1 {
-            format!("{:x}-{}", md5::Md5::digest(&concat_md5), chunk_count)
-        } else {
-            hex::encode(concat_md5)
-        })
-    }
-
-    fn trim_etag(mut etag: String) -> String {
-        if etag.starts_with("\"") {
-            etag.remove(0);
-        }
-        if etag.ends_with("\"") {
-            etag.pop();
-        }
-        etag
-    }
 }
 
 struct UploadResponse {
@@ -650,7 +222,7 @@ impl StreamSink<Event> for S3UploadFileSink {
 
         let mut delay_queue = DelayQueue::new();
         let mut pending_uploads = HashSet::new();
-        let mut buffer = Vec::with_capacity(S3_MULTIPART_UPLOAD_CHUNK_SIZE);
+        let mut uploader = S3Uploader::new(service.client(), options);
 
         loop {
             tokio::select! {
@@ -695,10 +267,16 @@ impl StreamSink<Event> for S3UploadFileSink {
                     pending_uploads.remove(&upload_key);
 
                     let upload_time = SystemTime::now();
-                    match Self::upload(service.client(), &bucket, &options, &upload_key, &mut buffer).await {
+                    match uploader.upload(&upload_key).await {
                         Ok(response) => {
-                            if response.events_byte_size > 0 {
-                                info!(message = "Uploaded file.", filename = %upload_key.filename, %bucket, key = %upload_key.object_key, size = %response.events_byte_size);
+                            if response.count > 0 {
+                                info!(
+                                    message = "Uploaded file.",
+                                    filename = %upload_key.filename,
+                                    bucket = %upload_key.bucket,
+                                    key = %upload_key.object_key,
+                                    size = %response.events_byte_size,
+                                );
                             }
                             finalizers.update_status(EventStatus::Delivered);
                             emit!(EventsSent {
@@ -709,7 +287,13 @@ impl StreamSink<Event> for S3UploadFileSink {
                             checkpointer.update(upload_key, upload_time, expire_after);
                         }
                         Err(error) => {
-                            error!(message = "Failed to upload file to S3.", %error, filename = %upload_key.filename, %bucket, key = %upload_key.object_key);
+                            error!(
+                                message = "Failed to upload file to S3.",
+                                %error,
+                                filename = %upload_key.filename,
+                                bucket = %upload_key.bucket,
+                                key = %upload_key.object_key,
+                            );
                             finalizers.update_status(EventStatus::Rejected);
                         }
                     }
@@ -722,6 +306,497 @@ impl StreamSink<Event> for S3UploadFileSink {
         }
 
         Ok(())
+    }
+}
+
+struct S3Uploader {
+    client: S3Client,
+    options: S3Options,
+    etag_calculator: EtagCalculator,
+}
+
+impl S3Uploader {
+    fn new(client: S3Client, options: S3Options) -> Self {
+        Self {
+            client,
+            options,
+            etag_calculator: EtagCalculator::default(),
+        }
+    }
+
+    async fn upload(&mut self, upload_key: &UploadKey) -> io::Result<UploadResponse> {
+        Ok(if self.need_upload(upload_key).await? {
+            UploadResponse {
+                count: 1,
+                events_byte_size: self.do_upload(upload_key).await?,
+            }
+        } else {
+            UploadResponse {
+                count: 0,
+                events_byte_size: 0,
+            }
+        })
+    }
+
+    async fn need_upload(&mut self, upload_key: &UploadKey) -> io::Result<bool> {
+        if let Some(object_etag) = self.fetch_object_etag(upload_key).await {
+            let etag = self.etag_calculator.file(&upload_key.filename).await?;
+            if etag == object_etag {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    async fn fetch_object_etag(&self, upload_key: &UploadKey) -> Option<String> {
+        self.client
+            .head_object()
+            .bucket(&upload_key.bucket)
+            .key(&upload_key.object_key)
+            .send()
+            .await
+            .map(|res| res.e_tag)
+            .ok()
+            .flatten()
+    }
+
+    async fn do_upload(&mut self, upload_key: &UploadKey) -> io::Result<usize> {
+        let mut file = File::open(&upload_key.filename).await?;
+
+        let mut chunk = Vec::new();
+        let n = (&mut file)
+            .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
+            .read_to_end(&mut chunk)
+            .await?;
+        if n < S3_MULTIPART_UPLOAD_CHUNK_SIZE {
+            let uploader = self.multipart_uploader(upload_key, vec![], file);
+            uploader.abort_all_uploads().await?;
+            self.put_object(upload_key, chunk).await
+        } else {
+            let uploader = self.multipart_uploader(upload_key, chunk, file);
+            Ok(uploader.upload().await?)
+        }
+    }
+
+    async fn put_object(&self, upload_key: &UploadKey, body: Vec<u8>) -> io::Result<usize> {
+        let content_md5 = EtagCalculator::content_md5(&body);
+        let size = body.len();
+        let tagging = self.options.tags.as_ref().map(|tags| {
+            let mut tagging = url::form_urlencoded::Serializer::new(String::new());
+            for (p, v) in tags {
+                tagging.append_pair(&p, &v);
+            }
+            tagging.finish()
+        });
+
+        let _ = self
+            .client
+            .put_object()
+            .body(ByteStream::from(body))
+            .bucket(&upload_key.bucket)
+            .key(&upload_key.object_key)
+            .set_content_encoding(self.options.content_encoding.clone())
+            .set_content_type(self.options.content_type.clone())
+            .set_acl(self.options.acl.map(Into::into))
+            .set_grant_full_control(self.options.grant_full_control.clone())
+            .set_grant_read(self.options.grant_read.clone())
+            .set_grant_read_acp(self.options.grant_read_acp.clone())
+            .set_grant_write_acp(self.options.grant_write_acp.clone())
+            .set_server_side_encryption(self.options.server_side_encryption.map(Into::into))
+            .set_ssekms_key_id(self.options.ssekms_key_id.clone())
+            .set_storage_class(self.options.storage_class.map(Into::into))
+            .set_tagging(tagging)
+            .content_md5(content_md5)
+            .send()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(size)
+    }
+
+    fn multipart_uploader<'a, 'b>(
+        &'a mut self,
+        upload_key: &'b UploadKey,
+        chunk: Vec<u8>,
+        file: File,
+    ) -> MultipartUploader<'a, 'b> {
+        MultipartUploader {
+            client: &self.client,
+            options: &self.options,
+            upload_key,
+
+            upload_id: "".to_owned(),
+            file,
+            chunk,
+            part_number: 1,
+            completed_parts: vec![],
+        }
+    }
+}
+
+struct MultipartUploader<'a, 'b> {
+    client: &'a S3Client,
+    options: &'a S3Options,
+    upload_key: &'b UploadKey,
+
+    upload_id: String,
+    file: File,
+    chunk: Vec<u8>,
+    part_number: i32,
+    completed_parts: Vec<CompletedPart>,
+}
+
+impl<'a, 'b> MultipartUploader<'a, 'b> {
+    async fn upload(mut self) -> io::Result<usize> {
+        self.initiate_upload().await?;
+
+        let mut uploaded_size = 0;
+        while !self.chunk.is_empty() {
+            if self.part_number as usize > S3_MULTIPART_UPLOAD_MAX_CHUNKS {
+                return Err(io::Error::new(io::ErrorKind::Other, "file is too large"));
+            }
+
+            let n = self.upload_part().await?;
+            uploaded_size += n;
+
+            self.chunk.clear();
+            self.chunk.reserve(S3_MULTIPART_UPLOAD_CHUNK_SIZE);
+            (&mut self.file)
+                .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
+                .read_to_end(&mut self.chunk)
+                .await?;
+            self.part_number += 1;
+        }
+
+        self.complete_upload().await?;
+        Ok(uploaded_size)
+    }
+
+    async fn initiate_upload(&mut self) -> io::Result<()> {
+        let uploads = self.list_existing_uploads().await?;
+        if uploads.is_empty() {
+            self.upload_id = self.create_upload().await?;
+            return Ok(());
+        }
+
+        // only recover the latest multipart upload, abort others
+        let upload_id = self.cleanup_uploads_except_latest(uploads).await?;
+        let parts = self.list_parts(&upload_id).await?;
+        if parts.is_empty() {
+            self.upload_id = upload_id;
+            return Ok(());
+        }
+
+        if self.verify_and_advance(parts, &upload_id).await? {
+            self.upload_id = upload_id;
+            return Ok(());
+        }
+
+        self.abort_upload(upload_id).await?;
+        self.upload_id = self.create_upload().await?;
+        // `verify_and_advance` modified these fields, reset them
+        self.file = File::open(&self.upload_key.filename).await?;
+        self.chunk.clear();
+        (&mut self.file)
+            .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
+            .read_to_end(&mut self.chunk)
+            .await?;
+        self.part_number = 1;
+        self.completed_parts.clear();
+        Ok(())
+    }
+
+    async fn abort_all_uploads(&self) -> io::Result<()> {
+        let uploads = self.list_existing_uploads().await?;
+        for upload in uploads {
+            let upload_id = upload.upload_id.unwrap_or_default();
+            info!(
+                message = "Cleaned up unused multipart upload",
+                filename = %self.upload_key.filename,
+                bucket = %self.upload_key.bucket,
+                key = %self.upload_key.object_key,
+                %upload_id,
+            );
+            self.abort_upload(upload_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn list_existing_uploads(&self) -> io::Result<Vec<MultipartUpload>> {
+        let uploads = self
+            .client
+            .list_multipart_uploads()
+            .bucket(&self.upload_key.bucket)
+            .prefix(&self.upload_key.object_key)
+            .send()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(uploads.uploads.unwrap_or_default())
+    }
+
+    async fn create_upload(&mut self) -> io::Result<String> {
+        let tagging = self.options.tags.as_ref().map(|tags| {
+            let mut tagging = url::form_urlencoded::Serializer::new(String::new());
+            for (p, v) in tags {
+                tagging.append_pair(&p, &v);
+            }
+            tagging.finish()
+        });
+
+        let response = self
+            .client
+            .create_multipart_upload()
+            .bucket(&self.upload_key.bucket)
+            .key(&self.upload_key.object_key)
+            .set_content_encoding(self.options.content_encoding.clone())
+            .set_content_type(self.options.content_type.clone())
+            .set_acl(self.options.acl.map(Into::into))
+            .set_grant_full_control(self.options.grant_full_control.clone())
+            .set_grant_read(self.options.grant_read.clone())
+            .set_grant_read_acp(self.options.grant_read_acp.clone())
+            .set_grant_write_acp(self.options.grant_write_acp.clone())
+            .set_server_side_encryption(self.options.server_side_encryption.map(Into::into))
+            .set_ssekms_key_id(self.options.ssekms_key_id.clone())
+            .set_storage_class(self.options.storage_class.map(Into::into))
+            .set_tagging(tagging)
+            .send()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(response.upload_id.unwrap_or_default())
+    }
+
+    async fn cleanup_uploads_except_latest(
+        &self,
+        mut uploads: Vec<MultipartUpload>,
+    ) -> io::Result<String> {
+        uploads.sort_unstable_by_key(|a| {
+            a.initiated
+                .as_ref()
+                .map(|a| a.as_nanos())
+                .unwrap_or_default()
+        });
+        let upload = uploads.pop().unwrap();
+
+        // abort older uploads
+        for upload in uploads {
+            let upload_id = upload.upload_id.unwrap_or_default();
+            info!(
+                message = "Cleaned up unused multipart upload",
+                filename = %self.upload_key.filename,
+                bucket = %self.upload_key.bucket,
+                key = %self.upload_key.object_key,
+                %upload_id,
+            );
+            self.abort_upload(upload_id).await?;
+        }
+
+        Ok(upload.upload_id.unwrap_or_default())
+    }
+
+    async fn abort_upload(&self, upload_id: String) -> io::Result<()> {
+        self.client
+            .abort_multipart_upload()
+            .bucket(&self.upload_key.bucket)
+            .key(&self.upload_key.object_key)
+            .upload_id(upload_id)
+            .send()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(())
+    }
+
+    async fn verify_and_advance(
+        &mut self,
+        mut parts: Vec<Part>,
+        upload_id: &str,
+    ) -> io::Result<bool> {
+        let mut recovered_part_size = 0;
+        parts.sort_unstable_by_key(|a| a.part_number);
+        for part in parts {
+            // check part number
+            let part_number = part.part_number;
+            let expected_part_number = self.part_number;
+            if part_number != expected_part_number {
+                warn!(
+                    message = "Unexpected part number, aborted multipart upload.",
+                    filename = %self.upload_key.filename,
+                    bucket = %self.upload_key.bucket,
+                    key = %self.upload_key.object_key,
+                    %part_number,
+                    %expected_part_number,
+                    %upload_id,
+                );
+                return Ok(false);
+            }
+
+            // check etag
+            let expected_part_etag = EtagCalculator::part(&self.chunk);
+            let part_etag = part.e_tag.unwrap_or_default();
+            if part_etag != expected_part_etag {
+                warn!(
+                    message = "Unexpected part etag, aborted multipart upload.",
+                    filename = %self.upload_key.filename,
+                    bucket = %self.upload_key.bucket,
+                    key = %self.upload_key.object_key,
+                    %part_etag,
+                    %expected_part_etag,
+                    %upload_id,
+                );
+                return Ok(false);
+            }
+
+            let completed_part = CompletedPart::builder()
+                .e_tag(part_etag)
+                .part_number(part_number)
+                .build();
+            self.completed_parts.push(completed_part);
+            recovered_part_size += part.size;
+
+            self.chunk.clear();
+            (&mut self.file)
+                .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
+                .read_to_end(&mut self.chunk)
+                .await?;
+            self.part_number += 1;
+        }
+
+        info!(
+            message = "Resumed upload",
+            filename = %self.upload_key.filename,
+            bucket = %self.upload_key.bucket,
+            key = %self.upload_key.object_key,
+            %recovered_part_size,
+            %upload_id,
+        );
+        Ok(true)
+    }
+
+    async fn list_parts(&self, upload_id: &str) -> io::Result<Vec<Part>> {
+        let res = self
+            .client
+            .list_parts()
+            .bucket(&self.upload_key.bucket)
+            .key(&self.upload_key.object_key)
+            .upload_id(upload_id)
+            .send()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(res.parts.unwrap_or_default())
+    }
+
+    async fn upload_part(&mut self) -> io::Result<usize> {
+        let body = std::mem::take(&mut self.chunk);
+        let size = body.len();
+        let content_md5 = EtagCalculator::content_md5(&body);
+        let response = self
+            .client
+            .upload_part()
+            .body(ByteStream::from(body))
+            .bucket(&self.upload_key.bucket)
+            .key(&self.upload_key.object_key)
+            .part_number(self.part_number)
+            .upload_id(&self.upload_id)
+            .content_md5(content_md5)
+            .send()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        let completed_part = CompletedPart::builder()
+            .part_number(self.part_number)
+            .e_tag(response.e_tag.unwrap_or_default())
+            .build();
+        self.completed_parts.push(completed_part);
+
+        Ok(size)
+    }
+
+    async fn complete_upload(&mut self) -> io::Result<()> {
+        let completed_parts = std::mem::take(&mut self.completed_parts);
+        let completed_multipart_upload = CompletedMultipartUpload::builder()
+            .set_parts(Some(completed_parts))
+            .build();
+        let _ = self
+            .client
+            .complete_multipart_upload()
+            .bucket(&self.upload_key.bucket)
+            .key(&self.upload_key.object_key)
+            .upload_id(&self.upload_id)
+            .multipart_upload(completed_multipart_upload)
+            .send()
+            .await
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct EtagCalculator {
+    chunk: Vec<u8>,
+    concat_md5: Vec<u8>,
+}
+
+impl EtagCalculator {
+    fn part(chunk: &[u8]) -> String {
+        format!("\"{:x}\"", md5::Md5::digest(chunk))
+    }
+
+    fn content_md5(chunk: &[u8]) -> String {
+        base64::encode(md5::Md5::digest(chunk))
+    }
+
+    async fn file(&mut self, filename: impl AsRef<Path>) -> io::Result<String> {
+        let mut chunk_count = 0;
+        let mut file = File::open(filename).await?;
+        let mut total_size = 0;
+        loop {
+            self.chunk.clear();
+            let read_size = (&mut file)
+                .take(S3_MULTIPART_UPLOAD_CHUNK_SIZE as u64)
+                .read_to_end(&mut self.chunk)
+                .await?;
+            total_size += read_size;
+            if read_size == 0 {
+                break;
+            }
+            chunk_count += 1;
+            let digest: [u8; 16] = md5::Md5::digest(&self.chunk).into();
+            self.concat_md5.extend_from_slice(&digest);
+            if read_size < S3_MULTIPART_UPLOAD_CHUNK_SIZE {
+                break;
+            }
+            if chunk_count > S3_MULTIPART_UPLOAD_MAX_CHUNKS {
+                return Err(io::Error::new(io::ErrorKind::Other, "file is too large"));
+            }
+        }
+
+        if self.concat_md5.is_empty() {
+            let digest: [u8; 16] = md5::Md5::digest(&[]).into();
+            self.concat_md5.extend_from_slice(&digest);
+        }
+
+        let res = if total_size >= S3_MULTIPART_UPLOAD_CHUNK_SIZE {
+            format!(
+                "\"{:x}-{}\"",
+                md5::Md5::digest(&self.concat_md5),
+                chunk_count
+            )
+        } else {
+            format!("\"{}\"", hex::encode(&self.concat_md5))
+        };
+
+        // limit the capacity to avoid occupying too much memory
+        const MAX_CAPACITY: usize = 10 * 1024; // 10KiB
+        self.concat_md5.clear();
+        self.chunk.clear();
+        self.concat_md5.shrink_to(MAX_CAPACITY);
+        self.chunk.shrink_to(MAX_CAPACITY);
+
+        Ok(res)
     }
 }
 
