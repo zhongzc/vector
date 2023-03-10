@@ -167,7 +167,7 @@ pub fn build_healthcheck(
         auth.apply(&mut request);
 
         let response = client.send(request).await?;
-        healthcheck_response(response, auth, GcsHealthcheckError::NotFound.into())
+        healthcheck_response(response, GcsHealthcheckError::NotFound.into())
     };
 
     Ok(Box::pin(healthcheck))

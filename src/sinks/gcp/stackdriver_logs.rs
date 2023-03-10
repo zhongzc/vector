@@ -358,14 +358,12 @@ fn remap_severity(severity: Value) -> Value {
 }
 
 async fn healthcheck(client: HttpClient, sink: StackdriverSink) -> crate::Result<()> {
+    sink.auth.spawn_regenerate_token();
+
     let request = sink.build_request(vec![]).await?.map(Body::from);
 
     let response = client.send(request).await?;
-    healthcheck_response(
-        response,
-        sink.auth.clone(),
-        HealthcheckError::NotFound.into(),
-    )
+    healthcheck_response(response, HealthcheckError::NotFound.into())
 }
 
 impl StackdriverConfig {

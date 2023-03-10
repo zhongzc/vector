@@ -217,11 +217,13 @@ impl HttpSink for PubsubSink {
 }
 
 async fn healthcheck(client: HttpClient, uri: Uri, auth: GcpAuthenticator) -> crate::Result<()> {
+    auth.spawn_regenerate_token();
+
     let mut request = Request::get(uri).body(Body::empty()).unwrap();
     auth.apply(&mut request);
 
     let response = client.send(request).await?;
-    healthcheck_response(response, auth, HealthcheckError::TopicNotFound.into())
+    healthcheck_response(response, HealthcheckError::TopicNotFound.into())
 }
 
 #[cfg(test)]
